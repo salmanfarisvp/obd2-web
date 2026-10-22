@@ -44,7 +44,11 @@ Logs rides from a BLE ELM327 OBD2 adapter plus phone GPS to Supabase, and shows 
 
 ## Riding with an iPhone
 
-Safari doesn't support Web Bluetooth, so open the deployed site in the free **Bluefy** browser.
+**Recommended: the native app** in [`ios/`](ios/README.md). It logs with the screen locked and
+uses the same account and database as the website.
+
+Without it, Safari doesn't support Web Bluetooth, so open the deployed site in the free
+**Bluefy** browser instead (logging pauses if the screen locks):
 
 1. Close Car Scanner (the adapter only accepts one connection).
 2. Turn the ignition on, open the site in Bluefy, go to **Ride** and tap **Connect OBD**.
