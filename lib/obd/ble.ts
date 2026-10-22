@@ -22,6 +22,7 @@ export class BleElmTransport {
     return this.device?.name ?? "Adapter";
   }
 
+  /** Show the device picker and connect. Must be called from a tap. */
   async connect() {
     if (!navigator.bluetooth) {
       throw new Error("Web Bluetooth isn't available. On iPhone, open this site in the Bluefy browser.");
@@ -31,7 +32,19 @@ export class BleElmTransport {
       optionalServices: KNOWN_SERVICES,
     });
     this.device.addEventListener("gattserverdisconnected", () => this.onDisconnect?.());
-    const server = await this.device.gatt!.connect();
+    await this.open();
+  }
+
+  /** Reconnect to the adapter picked earlier, e.g. after the scooter's power comes back. */
+  async reconnect() {
+    if (!this.device) throw new Error("No adapter picked yet");
+    await this.open();
+  }
+
+  private async open() {
+    this.buffer = "";
+    this.pending = undefined;
+    const server = await this.device!.gatt!.connect();
 
     let notifier: BluetoothRemoteGATTCharacteristic | undefined;
     for (const service of await server.getPrimaryServices()) {
@@ -51,20 +64,22 @@ export class BleElmTransport {
     }
     if (!notifier || !this.writer) throw new Error("Couldn't find an ELM327 serial service on this adapter.");
 
-    notifier.addEventListener("characteristicvaluechanged", (e) => {
-      const value = (e.target as BluetoothRemoteGATTCharacteristic).value!;
-      this.buffer += new TextDecoder().decode(value);
-      const end = this.buffer.indexOf(">");
-      if (end !== -1 && this.pending) {
-        const text = this.buffer.slice(0, end);
-        this.buffer = this.buffer.slice(end + 1);
-        const resolve = this.pending;
-        this.pending = undefined;
-        resolve(text);
-      }
-    });
+    notifier.addEventListener("characteristicvaluechanged", this.onData);
     await notifier.startNotifications();
   }
+
+  private onData = (e: Event) => {
+    const value = (e.target as BluetoothRemoteGATTCharacteristic).value!;
+    this.buffer += new TextDecoder().decode(value);
+    const end = this.buffer.indexOf(">");
+    if (end !== -1 && this.pending) {
+      const text = this.buffer.slice(0, end);
+      this.buffer = this.buffer.slice(end + 1);
+      const resolve = this.pending;
+      this.pending = undefined;
+      resolve(text);
+    }
+  };
 
   /** Send one command and resolve with the raw response (prompt stripped). Calls are serialized. */
   send(cmd: string, timeoutMs = 3000): Promise<string> {
@@ -94,6 +109,7 @@ export class BleElmTransport {
   }
 
   disconnect() {
+    this.onDisconnect = undefined;
     this.device?.gatt?.disconnect();
   }
 }

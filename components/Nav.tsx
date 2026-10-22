@@ -9,7 +9,7 @@ import { useSession } from "@/lib/useSession";
 export default function Nav() {
   const path = usePathname();
   const session = useSession();
-  const { adapter, phase, stats } = useRecorder();
+  const { adapter, link: obdLink, phase, stats } = useRecorder();
   const link = (href: string, label: string) => (
     <Link href={href} className={`link ${path === href ? "active" : ""}`}>{label}</Link>
   );
@@ -17,9 +17,11 @@ export default function Nav() {
     <nav>
       <Link href="/" className="brand">🛵 Ride Logger</Link>
       {phase === "recording" ? (
-        <Link href="/ride" className="pill bad">● Rec {formatDuration(stats.seconds)}</Link>
+        <Link href="/ride" className="pill bad">● Rec {formatDuration(stats.duration_s)}</Link>
       ) : adapter ? (
         <Link href="/ride" className="pill ok">● OBD</Link>
+      ) : obdLink === "reconnecting" ? (
+        <Link href="/ride" className="pill warn">● OBD off</Link>
       ) : null}
       {session && link("/ride", "Ride")}
       {session && link("/rides", "History")}

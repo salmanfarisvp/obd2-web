@@ -42,7 +42,7 @@ button, .button {
 button.primary { background: var(--accent); color: white; }
 button.danger { background: var(--danger); color: white; }
 button:disabled { opacity: .5; cursor: default; }
-input {
+input, textarea {
   width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); font: inherit;
 }

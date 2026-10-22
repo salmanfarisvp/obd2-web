@@ -13,6 +13,10 @@ create table rides (
   max_rpm real,
   max_coolant real,
   fuel_l real,
+  moving_s integer,
+  idle_s integer,
+  stops integer,
+  note text,
   obd_connected boolean not null default false
 );
 

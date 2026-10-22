@@ -17,6 +17,10 @@ export type Ride = {
   max_rpm: number | null;
   max_coolant: number | null;
   fuel_l: number | null;
+  moving_s: number | null;
+  idle_s: number | null;
+  stops: number | null;
+  note: string | null;
   obd_connected: boolean;
 };
 

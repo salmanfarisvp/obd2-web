@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { LatLngTuple } from "leaflet";
 import RequireAuth from "@/components/RequireAuth";
 import RideChart from "@/components/RideChart";
+import RideNote from "@/components/RideNote";
 import { supabase, Ride, Reading, FaultCode } from "@/lib/supabase";
 import { formatDuration } from "@/lib/geo";
 import { completeRide, fetchReadings } from "@/lib/rideSummary";
@@ -81,12 +82,22 @@ function RideDetail({ id }: { id: string }) {
   return (
     <>
       <h1>{new Date(ride.started_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</h1>
-      <p className="muted" style={{ marginTop: -10 }}>{ride.vehicle_name}</p>
+      <p className="muted" style={{ marginTop: -10 }}>
+        {ride.vehicle_name}
+        {ride.ended_at && ` · ${new Date(ride.started_at).toLocaleTimeString(undefined, { timeStyle: "short" })}–${new Date(ride.ended_at).toLocaleTimeString(undefined, { timeStyle: "short" })}`}
+      </p>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <RideNote key={ride.id} rideId={ride.id} initial={ride.note} />
+      </div>
 
       <div className="grid">
         <div className="card stat"><div className="label">Distance</div><div className="value">{(ride.distance_km ?? 0).toFixed(2)}<span className="unit">km</span></div></div>
         <div className="card stat"><div className="label">Duration</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(ride.duration_s)}</div></div>
+        {ride.moving_s !== null && <div className="card stat"><div className="label">Riding time</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(ride.moving_s)}</div></div>}
+        {ride.idle_s !== null && <div className="card stat"><div className="label">Idle time</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(ride.idle_s)}</div></div>}
+        {ride.stops !== null && <div className="card stat"><div className="label">Stops</div><div className="value">{ride.stops}</div></div>}
         <div className="card stat"><div className="label">Avg speed</div><div className="value">{Math.round(ride.avg_speed ?? 0)}<span className="unit">km/h</span></div></div>
+        {ride.moving_s ? <div className="card stat"><div className="label">Riding avg</div><div className="value">{Math.round((ride.distance_km ?? 0) / (ride.moving_s / 3600))}<span className="unit">km/h</span></div></div> : null}
         <div className="card stat"><div className="label">Max speed</div><div className="value">{Math.round(ride.max_speed ?? 0)}<span className="unit">km/h</span></div></div>
         {ride.max_rpm !== null && <div className="card stat"><div className="label">Max RPM</div><div className="value">{Math.round(ride.max_rpm)}</div></div>}
         {ride.max_coolant !== null && <div className="card stat"><div className="label">Coolant avg / max</div><div className="value">{avgCoolant?.toFixed(0) ?? "–"}/{Math.round(ride.max_coolant)}<span className="unit">°C</span></div></div>}

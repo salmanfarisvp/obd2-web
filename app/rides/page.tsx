@@ -27,6 +27,8 @@ function RideList() {
 
   const totalKm = rides.reduce((sum, r) => sum + (r.distance_km ?? 0), 0);
   const totalS = rides.reduce((sum, r) => sum + (r.duration_s ?? 0), 0);
+  const movingS = rides.reduce((sum, r) => sum + (r.moving_s ?? 0), 0);
+  const idleS = rides.reduce((sum, r) => sum + (r.idle_s ?? 0), 0);
 
   return (
     <>
@@ -34,7 +36,9 @@ function RideList() {
       <div className="grid">
         <div className="card stat"><div className="label">Rides</div><div className="value">{rides.length}</div></div>
         <div className="card stat"><div className="label">Total distance</div><div className="value">{totalKm.toFixed(1)}<span className="unit">km</span></div></div>
-        <div className="card stat"><div className="label">Time riding</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(totalS)}</div></div>
+        <div className="card stat"><div className="label">Total time</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(totalS)}</div></div>
+        <div className="card stat"><div className="label">Riding time</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(movingS)}</div></div>
+        <div className="card stat"><div className="label">Idle time</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(idleS)}</div></div>
       </div>
 
       <h2>Rides</h2>
@@ -45,11 +49,13 @@ function RideList() {
             <div>
               <div style={{ fontWeight: 600 }}>
                 {new Date(r.started_at).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                {r.ended_at && `–${new Date(r.ended_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
               </div>
               <div className="muted" style={{ fontSize: 13 }}>
                 {r.vehicle_name} · {formatDuration(r.duration_s)}
                 {r.ended_at === null && " · in progress"}
               </div>
+              {r.note && <div style={{ fontSize: 13, marginTop: 2 }}>📝 {r.note}</div>}
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontWeight: 700 }}>{(r.distance_km ?? 0).toFixed(1)} km</div>
