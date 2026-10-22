@@ -15,6 +15,9 @@ Logs rides from a BLE ELM327 OBD2 adapter plus phone GPS to Supabase, and shows 
 - **Ride notes**: add a note when a ride is saved, and view or edit it later in History.
 - **Ride history**: totals across all rides, plus per-ride route map (OpenStreetMap), speed/RPM,
   temperature, throttle/load and battery charts, and fault codes.
+- **Ride replay**: drag the time slider or press play (10×/30×/60×) to move a marker along the
+  route and see speed, RPM, throttle, temperatures and more at that moment. Touch a chart or tap the
+  route to jump there. The route is coloured by speed.
 - **Fault codes**: stored DTCs are read when the adapter connects and attached to the ride.
 - **Offline-safe**: readings are kept on the phone and uploaded when the connection is back.
   Rides interrupted by a reload or closed app still get their totals in History.
