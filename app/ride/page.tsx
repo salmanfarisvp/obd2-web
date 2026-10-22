@@ -80,18 +80,27 @@ function RideRecorder() {
         </>
       )}
 
-      <h2>Live</h2>
-      <div className="grid">
-        <div className="card stat big"><div className="label">Speed</div><div className="value">{fmt(live.speed ?? (fix?.speed != null ? fix.speed * 3.6 : undefined))}<span className="unit">km/h</span></div></div>
-        <div className="card stat big"><div className="label">RPM</div><div className="value">{fmt(live.rpm)}</div></div>
-        <div className="card stat"><div className="label">Coolant</div><div className="value">{fmt(live.coolant)}<span className="unit">°C</span></div></div>
-        <div className="card stat"><div className="label">Throttle</div><div className="value">{fmt(live.throttle)}<span className="unit">%</span></div></div>
-        <div className="card stat"><div className="label">Load</div><div className="value">{fmt(live.load)}<span className="unit">%</span></div></div>
-        <div className="card stat"><div className="label">Intake air</div><div className="value">{fmt(live.intake_temp)}<span className="unit">°C</span></div></div>
-        <div className="card stat"><div className="label">MAP</div><div className="value">{fmt(live.map_kpa)}<span className="unit">kPa</span></div></div>
-        <div className="card stat"><div className="label">Battery</div><div className="value">{fmt(live.voltage, 1)}<span className="unit">V</span></div></div>
-        <div className="card stat"><div className="label">Fuel rate (est.)</div><div className="value">{fmt(live.fuel_rate, 2)}<span className="unit">L/h</span></div></div>
-      </div>
+      {(adapter || phase === "recording") && (
+        <>
+          <h2>Live</h2>
+          <div className="grid">
+            <div className="card stat big"><div className="label">Speed</div><div className="value">{fmt(live.speed ?? (fix?.speed != null ? fix.speed * 3.6 : undefined))}<span className="unit">km/h</span></div></div>
+            {/* Engine readings only exist with the adapter; a GPS-only ride just shows speed. */}
+            {adapter && (
+              <>
+                <div className="card stat big"><div className="label">RPM</div><div className="value">{fmt(live.rpm)}</div></div>
+                <div className="card stat"><div className="label">Coolant</div><div className="value">{fmt(live.coolant)}<span className="unit">°C</span></div></div>
+                <div className="card stat"><div className="label">Throttle</div><div className="value">{fmt(live.throttle)}<span className="unit">%</span></div></div>
+                <div className="card stat"><div className="label">Load</div><div className="value">{fmt(live.load)}<span className="unit">%</span></div></div>
+                <div className="card stat"><div className="label">Intake air</div><div className="value">{fmt(live.intake_temp)}<span className="unit">°C</span></div></div>
+                <div className="card stat"><div className="label">MAP</div><div className="value">{fmt(live.map_kpa)}<span className="unit">kPa</span></div></div>
+                <div className="card stat"><div className="label">Battery</div><div className="value">{fmt(live.voltage, 1)}<span className="unit">V</span></div></div>
+                <div className="card stat"><div className="label">Fuel rate (est.)</div><div className="value">{fmt(live.fuel_rate, 2)}<span className="unit">L/h</span></div></div>
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {phase === "recording" && (
         <>
