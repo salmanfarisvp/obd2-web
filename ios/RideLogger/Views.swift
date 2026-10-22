@@ -54,6 +54,7 @@ struct LoginView: View {
                 }
             }
             .navigationTitle("🛵 Ride Logger")
+            .keyboardDismissable()
         }
     }
 
@@ -86,6 +87,7 @@ struct MainView: View {
                 if let dtcs = recorder.dtcs { faultSection(dtcs) }
             }
             .navigationTitle("🛵 Ride Logger")
+            .keyboardDismissable()
             .sheet(isPresented: $picking) { AdapterPicker(isPresented: $picking) }
         }
     }
@@ -276,5 +278,20 @@ private extension View {
         #else
         return self
         #endif
+    }
+}
+
+extension View {
+    /// "Done" above the keyboard (the decimal pad has no return key), and drag-to-dismiss on scroll.
+    func keyboardDismissable() -> some View {
+        scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
+            }
     }
 }

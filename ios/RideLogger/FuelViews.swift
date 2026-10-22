@@ -69,6 +69,7 @@ struct FuelView: View {
                 logSection
             }
             .navigationTitle("Fuel")
+            .keyboardDismissable()
             .refreshable { await fuel.load() }
             .task {
                 await fuel.load()
@@ -257,6 +258,7 @@ struct ProfileView: View {
                 }
             }
             .navigationTitle("Profile")
+            .keyboardDismissable()
             .task {
                 guard !loaded else { return }
                 await fuel.load()

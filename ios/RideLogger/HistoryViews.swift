@@ -169,6 +169,7 @@ struct RideDetailView: View {
             if let error { Text(error).foregroundStyle(.red) }
         }
         .navigationTitle(ride.startedAt.formatted(date: .abbreviated, time: .shortened))
+        .keyboardDismissable()
         .confirmationDialog("Delete this ride?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { delete() }
         }
