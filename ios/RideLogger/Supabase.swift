@@ -61,8 +61,21 @@ final class SupabaseClient: ObservableObject {
     }
 
     func update(_ table: String, id: String, fields: [String: Any]) async throws {
-        try await send("rest/v1/\(table)?id=eq.\(id)", method: "PATCH", body: json(fields), token: try await validToken(),
+        try await update(table, column: "id", equals: id, fields: fields)
+    }
+
+    /// PATCH every row where `column` equals `value`.
+    func update(_ table: String, column: String, equals value: String, fields: [String: Any]) async throws {
+        let encoded = value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
+        try await send("rest/v1/\(table)?\(column)=eq.\(encoded)", method: "PATCH", body: json(fields), token: try await validToken(),
                        headers: ["Prefer": "return=minimal"])
+    }
+
+    /// Insert or update rows and return them as stored (with generated ids).
+    func upsertReturning(_ table: String, rows: [[String: Any]]) async throws -> [[String: Any]] {
+        let data = try await send("rest/v1/\(table)", body: json(rows), token: try await validToken(),
+                                  headers: ["Prefer": "return=representation,resolution=merge-duplicates"])
+        return (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
     func delete(_ table: String, id: String) async throws {

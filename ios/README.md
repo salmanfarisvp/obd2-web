@@ -1,8 +1,8 @@
 # Ride Logger for iPhone
 
 Native logger that keeps recording with the screen locked and the phone in your pocket.
-It uses the same Supabase project and login as the website. Ride history is in the app too;
-the fuel log and profile are on the website (the app links to them).
+It uses the same Supabase project and login as the website, and has everything the website
+has: ride history with map replay, fuel log, mileage and costs, and profile.
 
 ## What it does
 
@@ -15,7 +15,11 @@ the fuel log and profile are on the website (the app links to them).
 - GPS-only rides when there's no adapter.
 - **History tab**: totals, ride list, and per ride the stats, a note you can edit, an Apple Maps
   route coloured by speed, a replay slider with play (10×/30×/60×) showing the readings at each
-  moment, charts you can touch to jump to a moment, and fault codes.
+  moment, charts you can touch to jump to a moment, and fault codes. Per vehicle: mileage (real or
+  estimated), fuel used, fuel cost and cost per km; per ride: fuel, mileage, cost and cost per km.
+- **Fuel tab**: add fill-ups by amount or litres (the other is worked out from the price), mark
+  full tanks, see real mileage and spending, swipe to delete.
+- **Profile tab**: currency, petrol price, vehicles with tank capacity, and sign out.
 
 ## Build and install (free Apple ID)
 

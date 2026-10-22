@@ -5,6 +5,7 @@ import SwiftUI
 struct RideLoggerApp: App {
     @StateObject private var client = SupabaseClient.shared
     @StateObject private var recorder = Recorder()
+    @StateObject private var fuel = FuelStore()
 
     var body: some Scene {
         WindowGroup {
@@ -15,11 +16,14 @@ struct RideLoggerApp: App {
                     TabView {
                         MainView().tabItem { Label("Ride", systemImage: "scooter") }
                         RidesView().tabItem { Label("History", systemImage: "map") }
+                        FuelView().tabItem { Label("Fuel", systemImage: "fuelpump") }
+                        ProfileView().tabItem { Label("Profile", systemImage: "person.crop.circle") }
                     }
                 }
             }
             .environmentObject(client)
             .environmentObject(recorder)
+            .environmentObject(fuel)
             .preferredColorScheme(.dark)
         }
     }
@@ -80,7 +84,6 @@ struct MainView: View {
                 if recorder.phase == .recording { rideSection }
                 if let saved = recorder.lastSaved, recorder.phase != .recording { lastRideSection(saved) }
                 if let dtcs = recorder.dtcs { faultSection(dtcs) }
-                accountSection
             }
             .navigationTitle("🛵 Ride Logger")
             .sheet(isPresented: $picking) { AdapterPicker(isPresented: $picking) }
@@ -187,17 +190,6 @@ struct MainView: View {
                 Text("No stored codes").foregroundStyle(.green)
             } else {
                 ForEach(dtcs, id: \.self) { Text($0).foregroundStyle(.red) }
-            }
-        }
-    }
-
-    private var accountSection: some View {
-        Section {
-            Link("Fuel log and profile on the website →", destination: webURL.appendingPathComponent("fuel"))
-            HStack {
-                Text(client.session?.email ?? "").foregroundStyle(.secondary)
-                Spacer()
-                Button("Sign out") { client.signOut() }
             }
         }
     }

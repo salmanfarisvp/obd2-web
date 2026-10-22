@@ -222,12 +222,12 @@
 		7A1000000000000000000103 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ride Logger";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Ride Logger connects to your OBD2 adapter to log engine data during rides.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Ride Logger records your route while you ride, including with the screen locked.";
@@ -251,12 +251,12 @@
 		7A1000000000000000000104 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = "Ride Logger";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Ride Logger connects to your OBD2 adapter to log engine data during rides.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Ride Logger records your route while you ride, including with the screen locked.";

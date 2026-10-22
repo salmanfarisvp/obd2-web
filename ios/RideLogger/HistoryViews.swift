@@ -5,6 +5,7 @@ import SwiftUI
 // MARK: - Ride list
 
 struct RidesView: View {
+    @EnvironmentObject private var fuel: FuelStore
     @State private var rides: [RideRecord]?
     @State private var error: String?
 
@@ -13,10 +14,13 @@ struct RidesView: View {
             List {
                 if let rides {
                     totals(rides)
+                    Section("Mileage & cost") {
+                        ForEach(Array(Set(rides.map(\.vehicleName))).sorted(), id: \.self) { VehicleCostCard(vehicle: $0) }
+                    }
                     Section("Rides") {
                         if rides.isEmpty { Text("No rides yet.").foregroundStyle(.secondary) }
                         ForEach(rides) { ride in
-                            NavigationLink(value: ride.id) { RideRow(ride: ride) }
+                            NavigationLink(value: ride.id) { RideRow(ride: ride, cost: fuel.cost(for: ride).map { money(fuel.currency, $0) }) }
                         }
                     }
                 } else if let error {
@@ -35,21 +39,16 @@ struct RidesView: View {
                     })
                 }
             }
-            .toolbar {
-                Menu("Web") {
-                    Link("Fuel log", destination: webURL.appendingPathComponent("fuel"))
-                    Link("Profile", destination: webURL.appendingPathComponent("profile"))
-                    Link("History on the web", destination: webURL.appendingPathComponent("rides"))
-                }
-            }
             .refreshable { await load() }
             .task { if rides == nil { await load() } }
         }
     }
 
     private func load() async {
+        async let fuelData: Void = fuel.load()
         do {
             rides = try await History.rides()
+            await fuelData
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -71,6 +70,7 @@ struct RidesView: View {
 
 private struct RideRow: View {
     let ride: RideRecord
+    let cost: String?
 
     var body: some View {
         HStack(alignment: .top) {
@@ -85,7 +85,7 @@ private struct RideRow: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(fmt(ride.distanceKm ?? 0, 1)) km").font(.subheadline.bold())
-                Text("max \(fmt(ride.maxSpeed ?? 0)) km/h").font(.caption).foregroundStyle(.secondary)
+                Text(cost ?? "max \(fmt(ride.maxSpeed ?? 0)) km/h").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -128,6 +128,7 @@ struct RideDetailView: View {
     let onDelete: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var fuel: FuelStore
     @State private var readings: [Reading] = []
     @State private var codes: [String] = []
     @State private var loaded = false
@@ -183,7 +184,11 @@ struct RideDetailView: View {
     // MARK: Sections
 
     private var summarySection: some View {
-        Section {
+        let litres = fuel.fuel(for: ride)
+        let cost = fuel.cost(for: ride)
+        let km = ride.distanceKm ?? 0
+        let calibrated = fuel.mileage(for: ride.vehicleName)?.calibration != nil
+        return Section {
             Text("\(ride.vehicleName) · \(timeRange(ride))").font(.caption).foregroundStyle(.secondary)
             StatGrid(items: [
                 ("Distance", fmt(ride.distanceKm ?? 0, 2), "km"),
@@ -195,8 +200,14 @@ struct RideDetailView: View {
                 ("Max speed", fmt(ride.maxSpeed ?? 0), "km/h"),
                 ("Max RPM", fmt(ride.maxRpm), ""),
                 ("Max coolant", fmt(ride.maxCoolant), "°C"),
-                ("Fuel (est.)", fmt(ride.fuelL, 2), "L"),
+                (ride.fuelL == nil ? "Fuel (from mileage)" : calibrated ? "Fuel (calibrated)" : "Fuel (est.)", fmt(litres, 2), "L"),
+                ("Mileage", litres.flatMap { $0 > 0 && km > 0 ? fmt(km / $0, 1) : nil } ?? "–", "km/L"),
+                ("Cost", cost.map { money(fuel.currency, $0) } ?? "–", ""),
+                ("Cost / km", cost.flatMap { km > 0 ? money(fuel.currency, $0 / km) : nil } ?? "–", ""),
             ])
+            if litres != nil, fuel.price(at: ride.startedAt) == nil {
+                Text("Set your petrol price in the Profile tab to see this ride's cost.").font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
