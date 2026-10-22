@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { LatLngTuple } from "leaflet";
 import RequireAuth from "@/components/RequireAuth";
@@ -11,6 +12,7 @@ import RideNote from "@/components/RideNote";
 import { supabase, Ride, Reading, FaultCode } from "@/lib/supabase";
 import { formatDuration } from "@/lib/geo";
 import { completeRide, fetchReadings } from "@/lib/rideSummary";
+import { calibration, DEFAULT_CURRENCY, FuelData, Mileage, loadFuelData, money, priceAt, realMileage, rideCost, rideFuel } from "@/lib/fuel";
 
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 const MAX_CHART_POINTS = 400;
@@ -23,6 +25,8 @@ function RideDetail({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [cursor, setCursorState] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [fuel, setFuel] = useState<FuelData | null>(null);
+  const [mileage, setMileage] = useState<Mileage | null>(null);
   const setCursor = useCallback((i: number) => setCursorState(i), []);
   // Charts move the cursor on hover/touch; stop any playback when the user takes over.
   const scrub = useCallback((i: number) => {
@@ -41,7 +45,15 @@ function RideDetail({ id }: { id: string }) {
           supabase.from("fault_codes").select("*").eq("ride_id", id),
         ]);
         setReadings(rows);
-        setRide(await completeRide(data as Ride, rows));
+        const finished = await completeRide(data as Ride, rows);
+        setRide(finished);
+        // Real mileage needs every ride of this vehicle, to line them up with the fuel log.
+        const [fuelData, sameVehicle] = await Promise.all([
+          loadFuelData(),
+          supabase.from("rides").select("*").eq("vehicle_name", finished.vehicle_name),
+        ]);
+        setFuel(fuelData);
+        setMileage(realMileage(finished.vehicle_name, (sameVehicle.data as Ride[]) ?? [], fuelData));
         setCodes((dtc.data as FaultCode[]) ?? []);
       } catch (e) {
         setError((e as Error).message);
@@ -101,7 +113,11 @@ function RideDetail({ id }: { id: string }) {
   if (error) return <p className="error">{error}</p>;
   if (!ride) return <p className="muted">Loading…</p>;
 
-  const economy = ride.fuel_l && ride.distance_km ? ride.distance_km / ride.fuel_l : null;
+  const currency = fuel?.profile?.currency ?? DEFAULT_CURRENCY;
+  const litres = rideFuel(ride, mileage);
+  const cost = fuel ? rideCost(ride, mileage, fuel) : null;
+  const price = fuel ? priceAt(fuel, ride.started_at) : null;
+  const fuelLabel = calibration(mileage) ? "calibrated" : ride.fuel_l !== null ? "est." : "from mileage";
 
   return (
     <>
@@ -110,6 +126,9 @@ function RideDetail({ id }: { id: string }) {
         {ride.vehicle_name}
         {ride.ended_at && ` · ${new Date(ride.started_at).toLocaleTimeString(undefined, { timeStyle: "short" })}–${new Date(ride.ended_at).toLocaleTimeString(undefined, { timeStyle: "short" })}`}
       </p>
+      {fuel && litres !== null && price === null && (
+        <p className="muted">Set your petrol price in <Link href="/profile" style={{ color: "var(--accent)" }}>Profile</Link> to see this ride&apos;s cost.</p>
+      )}
       <div className="card" style={{ marginBottom: 12 }}>
         <RideNote key={ride.id} rideId={ride.id} initial={ride.note} />
       </div>
@@ -125,8 +144,10 @@ function RideDetail({ id }: { id: string }) {
         <div className="card stat"><div className="label">Max speed</div><div className="value">{Math.round(ride.max_speed ?? 0)}<span className="unit">km/h</span></div></div>
         {ride.max_rpm !== null && <div className="card stat"><div className="label">Max RPM</div><div className="value">{Math.round(ride.max_rpm)}</div></div>}
         {ride.max_coolant !== null && <div className="card stat"><div className="label">Coolant avg / max</div><div className="value">{avgCoolant?.toFixed(0) ?? "–"}/{Math.round(ride.max_coolant)}<span className="unit">°C</span></div></div>}
-        {ride.fuel_l !== null && <div className="card stat"><div className="label">Fuel (est.)</div><div className="value">{ride.fuel_l.toFixed(2)}<span className="unit">L</span></div></div>}
-        {economy !== null && <div className="card stat"><div className="label">Economy (est.)</div><div className="value">{economy.toFixed(1)}<span className="unit">km/L</span></div></div>}
+        {litres !== null && <div className="card stat"><div className="label">Fuel ({fuelLabel})</div><div className="value">{litres.toFixed(2)}<span className="unit">L</span></div></div>}
+        {litres && ride.distance_km ? <div className="card stat"><div className="label">Mileage</div><div className="value">{(ride.distance_km / litres).toFixed(1)}<span className="unit">km/L</span></div></div> : null}
+        {cost !== null && <div className="card stat"><div className="label">Cost</div><div className="value">{money(currency, cost)}</div></div>}
+        {cost !== null && ride.distance_km ? <div className="card stat"><div className="label">Cost / km</div><div className="value">{money(currency, cost / ride.distance_km)}</div></div> : null}
       </div>
 
       {(track.length > 1 || readings.length > 1) && <h2>Replay</h2>}

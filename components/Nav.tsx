@@ -3,7 +3,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRecorder } from "@/components/RecorderProvider";
 import { formatDuration } from "@/lib/geo";
-import { supabase } from "@/lib/supabase";
 import { useSession } from "@/lib/useSession";
 
 export default function Nav() {
@@ -25,11 +24,8 @@ export default function Nav() {
       ) : null}
       {session && link("/ride", "Ride")}
       {session && link("/rides", "History")}
-      {session ? (
-        <a className="link" href="#" onClick={(e) => { e.preventDefault(); supabase.auth.signOut(); }}>Sign out</a>
-      ) : (
-        link("/login", "Sign in")
-      )}
+      {session && link("/fuel", "Fuel")}
+      {session ? link("/profile", "Profile") : link("/login", "Sign in")}
     </nav>
   );
 }

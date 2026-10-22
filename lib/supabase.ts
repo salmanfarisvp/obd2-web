@@ -42,6 +42,21 @@ export type Reading = {
   ltft: number | null;
   voltage: number | null;
   fuel_rate: number | null;
+  fuel_level?: number | null;
 };
 
 export type FaultCode = { id: number; ride_id: string; code: string; detected_at: string };
+
+export type Profile = { user_id: string; currency: string; fuel_price: number | null };
+export type Vehicle = { id: string; name: string; tank_l: number | null };
+export type FuelLog = {
+  id: string;
+  vehicle_name: string;
+  filled_at: string;
+  litres: number;
+  amount: number | null;
+  price_per_l: number | null;
+  full_tank: boolean;
+  source: "manual" | "auto";
+  note: string | null;
+};

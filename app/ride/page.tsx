@@ -1,17 +1,25 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import RequireAuth from "@/components/RequireAuth";
 import RideNote from "@/components/RideNote";
 import { useRecorder } from "@/components/RecorderProvider";
 import { formatDuration } from "@/lib/geo";
+import { supabase, Vehicle } from "@/lib/supabase";
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
 function RideRecorder() {
   const {
     link, adapter, ecuOk, error, vehicle, setVehicle, phase, rideStartedAt, live, fix, stats, dtcs, unsent, lastSaved,
-    connect, disconnect, start, stop,
+    fillPrompt, dismissFillPrompt, connect, disconnect, start, stop,
   } = useRecorder();
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  useEffect(() => {
+    supabase.from("vehicles").select("*").order("name").then(({ data }) => setVehicles((data as Vehicle[]) ?? []));
+  }, []);
+  const tank = vehicles.find((v) => v.name === fillPrompt?.vehicle)?.tank_l ?? null;
+  const filledLitres = fillPrompt && tank ? ((fillPrompt.toPct - fillPrompt.fromPct) / 100) * tank : null;
 
   const fmt = (v: number | undefined, d = 0) => (v === undefined ? "–" : v.toFixed(d));
   const status =
@@ -52,7 +60,10 @@ function RideRecorder() {
         {phase !== "recording" && (
           <>
             <label>Vehicle</label>
-            <input value={vehicle} onChange={(e) => setVehicle(e.target.value)} />
+            <input list="vehicle-names" value={vehicle} onChange={(e) => setVehicle(e.target.value)} />
+            <datalist id="vehicle-names">
+              {vehicles.map((v) => <option key={v.id} value={v.name} />)}
+            </datalist>
           </>
         )}
         <div className="row" style={{ marginTop: 16 }}>
@@ -65,6 +76,25 @@ function RideRecorder() {
         </div>
         {error && <p className="error">{error}</p>}
       </div>
+
+      {fillPrompt && (
+        <div className="card" style={{ marginTop: 12, borderColor: "var(--ok)" }}>
+          <p style={{ marginTop: 0 }}>
+            ⛽ Looks like you filled up: the fuel gauge went from {fillPrompt.fromPct.toFixed(0)}% to {fillPrompt.toPct.toFixed(0)}%
+            {filledLitres !== null ? ` (about ${filledLitres.toFixed(2)} L)` : ". Set the tank size in Profile to estimate litres"}.
+          </p>
+          <div className="row">
+            <Link
+              className="button primary"
+              href={`/fuel?vehicle=${encodeURIComponent(fillPrompt.vehicle)}&at=${encodeURIComponent(fillPrompt.at)}&litres=${filledLitres?.toFixed(2) ?? ""}`}
+              onClick={dismissFillPrompt}
+            >
+              Add to fuel log
+            </Link>
+            <button onClick={dismissFillPrompt}>Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {lastSaved && phase !== "recording" && (
         <>

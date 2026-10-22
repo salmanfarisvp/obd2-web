@@ -20,12 +20,16 @@ const RECONNECT_MS = 5000;
 const ECU_SILENT_MS = 10_000;
 // ECU answering but RPM 0: engine off with ignition on (or stalled). Allow a restart.
 const ENGINE_OFF_MS = 60_000;
+// Fuel level rise (percentage points) between rides that counts as a fill-up.
+const FILL_JUMP_PCT = 10;
 
 export type Fix = { lat: number; lon: number; speed: number | null; accuracy: number };
 export type Phase = "idle" | "waiting" | "recording";
 type LinkState = "none" | "connecting" | "connected" | "reconnecting";
 type RideRow = Partial<Ride> & { id: string };
-type ActiveRide = { base: RideRow; rows: Reading[]; manual: boolean; lastRunningAt: number };
+type ActiveRide = { base: RideRow; rows: Reading[]; manual: boolean; lastRunningAt: number; fuelChecked: boolean };
+export type FillPrompt = { vehicle: string; fromPct: number; toPct: number; at: string };
+const fuelLevelKey = (vehicle: string) => `fuel-level:${vehicle}`;
 export type SavedRide = { id: string; started_at: string; ended_at: string; distance_km: number };
 
 function load<T>(key: string, fallback: T): T {
@@ -55,6 +59,8 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
   const [dtcs, setDtcs] = useState<string[] | null>(null);
   const [unsent, setUnsent] = useState(0);
   const [lastSaved, setLastSaved] = useState<SavedRide | null>(null);
+  const [fillPrompt, setFillPrompt] = useState<FillPrompt | null>(null);
+  const lastFuelLevel = useRef<number | null>(null);
 
   const elmRef = useRef<Elm327 | null>(null);
   const reconnecting = useRef<Elm327 | null>(null);
@@ -227,7 +233,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
       started_at: new Date().toISOString(),
       obd_connected: !manual,
     };
-    rideRef.current = { base, rows: [], manual, lastRunningAt: Date.now() };
+    rideRef.current = { base, rows: [], manual, lastRunningAt: Date.now(), fuelChecked: false };
     queueRide(base);
     setRideStartedAt(base.started_at!);
     setStats(summarize([]));
@@ -243,6 +249,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     if (!ride) return;
     rideRef.current = null;
     setRideStartedAt(null);
+    if (lastFuelLevel.current !== null) save(fuelLevelKey(ride.base.vehicle_name!), lastFuelLevel.current);
     setPhase(elmRef.current ? "waiting" : "idle");
     if (!ride.rows.length) {
       // Nothing was logged (engine never really ran); drop the empty ride.
@@ -298,6 +305,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
       ltft: sample.ltft ?? null,
       voltage: sample.voltage ?? null,
       fuel_rate: sample.fuel_rate ?? null,
+      ...(sample.fuel_level !== undefined && { fuel_level: sample.fuel_level }),
     };
     ride.rows.push(row);
     readingsQueue.current.push(row);
@@ -327,6 +335,18 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
         }
 
         const ride = rideRef.current;
+        if (sample.fuel_level !== undefined) {
+          lastFuelLevel.current = sample.fuel_level;
+          // Compare the first fuel reading of a ride with where the last ride ended.
+          if (ride && !ride.manual && !ride.fuelChecked) {
+            ride.fuelChecked = true;
+            const vehicleName = ride.base.vehicle_name!;
+            const before = load<number | null>(fuelLevelKey(vehicleName), null);
+            if (before !== null && sample.fuel_level - before >= FILL_JUMP_PCT) {
+              setFillPrompt({ vehicle: vehicleName, fromPct: before, toPct: sample.fuel_level, at: new Date().toISOString() });
+            }
+          }
+        }
         if (ride?.manual) {
           logReading(ride, sample);
         } else if (ride && engineOn) {
@@ -352,7 +372,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
 
   const value: Recorder = {
     link, adapter, ecuOk, error, vehicle, setVehicle, phase, rideStartedAt, live, fix, stats, dtcs, unsent,
-    lastSaved, connect, disconnect, start, stop,
+    lastSaved, fillPrompt, dismissFillPrompt: () => setFillPrompt(null), connect, disconnect, start, stop,
   };
   return <RecorderContext.Provider value={value}>{children}</RecorderContext.Provider>;
 }
@@ -372,6 +392,8 @@ type Recorder = {
   dtcs: string[] | null;
   unsent: number;
   lastSaved: SavedRide | null;
+  fillPrompt: FillPrompt | null;
+  dismissFillPrompt: () => void;
   connect: () => Promise<void>;
   disconnect: () => void;
   start: () => void;

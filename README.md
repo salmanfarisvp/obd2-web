@@ -18,6 +18,13 @@ Logs rides from a BLE ELM327 OBD2 adapter plus phone GPS to Supabase, and shows 
 - **Ride replay**: drag the time slider or press play (10×/30×/60×) to move a marker along the
   route and see speed, RPM, throttle, temperatures and more at that moment. Touch a chart or tap the
   route to jump there. The route is coloured by speed.
+- **Profile**: currency symbol, petrol price per litre, and your vehicles with tank capacity.
+- **Fuel log**: record each fill-up by amount paid or litres (the other is worked out from the
+  price), optionally marked as a full tank. If the ECU reports a fuel level, fill-ups are detected
+  automatically and offered for saving.
+- **Mileage and cost**: per vehicle and per ride: fuel used, km/L, cost and cost per km. Real
+  mileage comes from the fuel log (km ridden ÷ litres filled between fill-ups) and, once reliable,
+  calibrates the engine-based fuel estimates.
 - **Fault codes**: stored DTCs are read when the adapter connects and attached to the ride.
 - **Offline-safe**: readings are kept on the phone and uploaded when the connection is back.
   Rides interrupted by a reload or closed app still get their totals in History.
@@ -27,8 +34,8 @@ Logs rides from a BLE ELM327 OBD2 adapter plus phone GPS to Supabase, and shows 
 ## Setup
 
 1. **Supabase**: create a project, open the SQL editor and run `supabase/schema.sql`.
-   If you created the tables before riding/idle time and notes existed, run
-   `supabase/migrations/002_ride_times_and_notes.sql` instead.
+   If you created the tables earlier, run the files in `supabase/migrations/` that you haven't
+   run yet, in order, instead.
    Under Authentication → URL Configuration, set the Site URL to your Vercel URL.
 2. **Local env**: copy `.env.example` to `.env.local` and fill in the project URL and publishable key
    (Project Settings → API Keys). Never use the secret key here; it would be exposed in the browser.
@@ -68,4 +75,7 @@ Without the adapter, tap **Start GPS-only ride** to log with GPS only.
   intake temperature for a 124 cc engine (`estimateFuelRate` in `lib/obd/pids.ts`). Tune `ve`
   against a real fill-up to calibrate it.
 - Distance uses the integrated OBD speed when connected, otherwise GPS.
+- **Real mileage with partial fills** is approximate at first: the tank level at the first and last
+  fill-up isn't known, which can be off by up to a tankful. After about three tankfuls of fill-ups
+  (16 L for a 5.3 L tank) it's treated as reliable. Two full-tank fill-ups give an exact figure.
 - Unplug the adapter when parked so it doesn't drain the scooter battery.

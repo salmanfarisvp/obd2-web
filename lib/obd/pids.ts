@@ -1,7 +1,7 @@
 // Mode 01 PIDs reported by the Suzuki Access 125 ECU (CAN 11-bit, 500k, ECU 7E8).
 export type PidKey =
   | "rpm" | "speed" | "throttle" | "map_kpa" | "load"
-  | "coolant" | "intake_temp" | "timing" | "stft" | "ltft";
+  | "coolant" | "intake_temp" | "timing" | "stft" | "ltft" | "fuel_level";
 
 export type PidDef = { pid: string; key: PidKey; decode: (b: number[]) => number };
 
@@ -16,6 +16,8 @@ export const PIDS: PidDef[] = [
   { pid: "0E", key: "timing", decode: ([a]) => a / 2 - 64 },
   { pid: "06", key: "stft", decode: ([a]) => (a * 100) / 128 - 100 },
   { pid: "07", key: "ltft", decode: ([a]) => (a * 100) / 128 - 100 },
+  // Not in Car Scanner's list for the Access 125, so probably unsupported; harmless to ask.
+  { pid: "2F", key: "fuel_level", decode: ([a]) => (a * 100) / 255 },
 ];
 
 // Polled every cycle; the rest rotate one per cycle.

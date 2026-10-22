@@ -39,10 +39,10 @@ button, .button {
   appearance: none; border: 0; border-radius: 10px; padding: 12px 16px;
   font: inherit; font-weight: 600; cursor: pointer; background: var(--border); color: var(--text);
 }
-button.primary { background: var(--accent); color: white; }
+button.primary, .button.primary { background: var(--accent); color: white; }
 button.danger { background: var(--danger); color: white; }
 button:disabled { opacity: .5; cursor: default; }
-input, textarea {
+input, textarea, select {
   width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); font: inherit;
 }
