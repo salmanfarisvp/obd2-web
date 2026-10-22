@@ -1,17 +1,19 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import type { LatLngTuple } from "leaflet";
 import RequireAuth from "@/components/RequireAuth";
-import RideChart from "@/components/RideChart";
+import RideChart, { ChartRow } from "@/components/RideChart";
+import RideReplay from "@/components/RideReplay";
+import { SPEED_BANDS, TrackPoint } from "@/components/RouteMap";
 import RideNote from "@/components/RideNote";
 import { supabase, Ride, Reading, FaultCode } from "@/lib/supabase";
 import { formatDuration } from "@/lib/geo";
 import { completeRide, fetchReadings } from "@/lib/rideSummary";
 
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
-const MAX_CHART_POINTS = 600;
+const MAX_CHART_POINTS = 400;
 
 function RideDetail({ id }: { id: string }) {
   const router = useRouter();
@@ -19,6 +21,14 @@ function RideDetail({ id }: { id: string }) {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [codes, setCodes] = useState<FaultCode[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [cursor, setCursorState] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const setCursor = useCallback((i: number) => setCursorState(i), []);
+  // Charts move the cursor on hover/touch; stop any playback when the user takes over.
+  const scrub = useCallback((i: number) => {
+    setPlaying(false);
+    setCursorState(i);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -39,19 +49,33 @@ function RideDetail({ id }: { id: string }) {
     })();
   }, [id]);
 
-  const points = useMemo(
-    () => readings.filter((r) => r.lat !== null && r.lon !== null).map((r) => [r.lat, r.lon] as LatLngTuple),
+  const track = useMemo<TrackPoint[]>(
+    () =>
+      readings.flatMap((r, i) =>
+        r.lat !== null && r.lon !== null ? [{ i, lat: r.lat, lon: r.lon, speed: r.speed ?? r.gps_speed }] : [],
+      ),
     [readings],
   );
 
-  const chartData = useMemo(() => {
+  // Where the scooter was at each reading: the last GPS fix at or before it.
+  const positions = useMemo(() => {
+    let last: LatLngTuple | null = null;
+    return readings.map((r) => (r.lat !== null && r.lon !== null ? (last = [r.lat, r.lon]) : last));
+  }, [readings]);
+
+  const t0 = readings.length ? Date.parse(readings[0].ts) : 0;
+  const cursorMin = readings.length ? (Date.parse(readings[cursor].ts) - t0) / 60000 : undefined;
+
+  const chartData = useMemo<ChartRow[]>(() => {
     if (!readings.length) return [];
-    const t0 = new Date(readings[0].ts).getTime();
+    const start = Date.parse(readings[0].ts);
     const step = Math.max(1, Math.ceil(readings.length / MAX_CHART_POINTS));
     return readings
-      .filter((_, i) => i % step === 0)
-      .map((r) => ({
-        min: (new Date(r.ts).getTime() - t0) / 60000,
+      .map((r, idx) => ({ r, idx }))
+      .filter(({ idx }) => idx % step === 0)
+      .map(({ r, idx }) => ({
+        idx,
+        min: (Date.parse(r.ts) - start) / 60000,
         speed: r.speed ?? r.gps_speed,
         rpm: r.rpm,
         coolant: r.coolant,
@@ -105,11 +129,18 @@ function RideDetail({ id }: { id: string }) {
         {economy !== null && <div className="card stat"><div className="label">Economy (est.)</div><div className="value">{economy.toFixed(1)}<span className="unit">km/L</span></div></div>}
       </div>
 
-      {points.length > 1 && (
+      {(track.length > 1 || readings.length > 1) && <h2>Replay</h2>}
+      {track.length > 1 && (
         <>
-          <h2>Route</h2>
-          <div className="map"><RouteMap points={points} /></div>
+          <div className="map"><RouteMap track={track} marker={positions[cursor] ?? null} onPick={scrub} /></div>
+          <div className="legend">
+            <span>Speed km/h:</span>
+            {SPEED_BANDS.map((b) => <span key={b.label}><i style={{ background: b.color }} />{b.label}</span>)}
+          </div>
         </>
+      )}
+      {readings.length > 1 && (
+        <RideReplay readings={readings} cursor={cursor} setCursor={setCursor} playing={playing} setPlaying={setPlaying} />
       )}
 
       {chartData.length > 1 && (
@@ -118,6 +149,8 @@ function RideDetail({ id }: { id: string }) {
           <div className="card">
             <RideChart
               data={chartData}
+              cursorMin={cursorMin}
+              onScrub={scrub}
               series={[
                 { key: "speed", name: "Speed km/h", color: "#3b82f6" },
                 ...(hasObd ? [{ key: "rpm", name: "RPM", color: "#f59e0b", axis: "right" as const }] : []),
@@ -131,7 +164,7 @@ function RideDetail({ id }: { id: string }) {
         <>
           <h2>Temperatures</h2>
           <div className="card">
-            <RideChart data={chartData} series={[
+            <RideChart data={chartData} cursorMin={cursorMin} onScrub={scrub} series={[
               { key: "coolant", name: "Coolant °C", color: "#ef4444" },
               { key: "intake_temp", name: "Intake air °C", color: "#22c55e" },
             ]} />
@@ -139,7 +172,7 @@ function RideDetail({ id }: { id: string }) {
 
           <h2>Throttle & load</h2>
           <div className="card">
-            <RideChart data={chartData} series={[
+            <RideChart data={chartData} cursorMin={cursorMin} onScrub={scrub} series={[
               { key: "throttle", name: "Throttle %", color: "#a855f7" },
               { key: "load", name: "Engine load %", color: "#14b8a6" },
             ]} />
@@ -147,7 +180,7 @@ function RideDetail({ id }: { id: string }) {
 
           <h2>Battery</h2>
           <div className="card">
-            <RideChart data={chartData} series={[{ key: "voltage", name: "Volts", color: "#eab308" }]} />
+            <RideChart data={chartData} cursorMin={cursorMin} onScrub={scrub} series={[{ key: "voltage", name: "Volts", color: "#eab308" }]} />
           </div>
         </>
       )}
