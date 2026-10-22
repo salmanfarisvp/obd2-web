@@ -6,8 +6,8 @@ Logs rides from a BLE ELM327 OBD2 adapter plus phone GPS to Supabase, and shows 
 
 1. **Supabase**: create a project, open the SQL editor and run `supabase/schema.sql`.
    Under Authentication → URL Configuration, set the Site URL to your Vercel URL.
-2. **Local env**: copy `.env.example` to `.env.local` and fill in the project URL and anon key
-   (Project Settings → API).
+2. **Local env**: copy `.env.example` to `.env.local` and fill in the project URL and publishable key
+   (Project Settings → API Keys). Never use the secret key here; it would be exposed in the browser.
 3. **Run locally**: `npm install && npm run dev`.
 4. **Deploy**: push to GitHub, import the repo in Vercel, and add the same two env vars.
 
