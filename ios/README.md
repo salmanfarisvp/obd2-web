@@ -1,8 +1,8 @@
 # Ride Logger for iPhone
 
 Native logger that keeps recording with the screen locked and the phone in your pocket.
-It uses the same Supabase project and login as the website; ride history, replay, fuel and
-profile stay on the website (the app links to it).
+It uses the same Supabase project and login as the website. Ride history is in the app too;
+the fuel log and profile are on the website (the app links to them).
 
 ## What it does
 
@@ -13,6 +13,9 @@ profile stay on the website (the app links to it).
 - Logs OBD readings and GPS every second, in the background too.
 - Queues uploads on the phone and sends them when there's signal.
 - GPS-only rides when there's no adapter.
+- **History tab**: totals, ride list, and per ride the stats, a note you can edit, an Apple Maps
+  route coloured by speed, a replay slider with play (10×/30×/60×) showing the readings at each
+  moment, charts you can touch to jump to a moment, and fault codes.
 
 ## Build and install (free Apple ID)
 

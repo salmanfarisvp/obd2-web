@@ -12,7 +12,10 @@ struct RideLoggerApp: App {
                 if client.session == nil {
                     LoginView()
                 } else {
-                    MainView()
+                    TabView {
+                        MainView().tabItem { Label("Ride", systemImage: "scooter") }
+                        RidesView().tabItem { Label("History", systemImage: "map") }
+                    }
                 }
             }
             .environmentObject(client)
@@ -174,7 +177,7 @@ struct MainView: View {
     private func lastRideSection(_ saved: Recorder.SavedRide) -> some View {
         Section("Last ride saved") {
             Text("\(saved.start.formatted(date: .abbreviated, time: .shortened))–\(saved.end.formatted(date: .omitted, time: .shortened)) · \(fmt(saved.distanceKm, 1)) km")
-            Link("View and add a note in History →", destination: webURL.appendingPathComponent("rides/\(saved.id)"))
+            Text("Open the History tab to see it on the map and add a note.").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -190,7 +193,7 @@ struct MainView: View {
 
     private var accountSection: some View {
         Section {
-            Link("Open ride history →", destination: webURL.appendingPathComponent("rides"))
+            Link("Fuel log and profile on the website →", destination: webURL.appendingPathComponent("fuel"))
             HStack {
                 Text(client.session?.email ?? "").foregroundStyle(.secondary)
                 Spacer()
@@ -264,12 +267,12 @@ struct StatGrid: View {
     }
 }
 
-private func fmt(_ v: Double?, _ digits: Int = 0) -> String {
+func fmt(_ v: Double?, _ digits: Int = 0) -> String {
     guard let v else { return "–" }
     return String(format: "%.\(digits)f", v)
 }
 
-private func duration(_ s: Double) -> String {
+func duration(_ s: Double) -> String {
     let m = Int(s) / 60
     return m >= 60 ? "\(m / 60)h \(m % 60)m" : "\(m)m \(Int(s) % 60)s"
 }

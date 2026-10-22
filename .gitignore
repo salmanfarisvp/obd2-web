@@ -10,3 +10,4 @@ ios/RideLogger/Secrets.swift
 xcuserdata/
 *.xcuserstate
 ios/build/
+.DS_Store

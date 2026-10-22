@@ -54,6 +54,17 @@ final class SupabaseClient: ObservableObject {
         try await send("rest/v1/\(table)", body: json(rows), token: try await validToken(), headers: ["Prefer": prefer])
     }
 
+    /// GET a PostgREST query, e.g. `rides?select=*&order=started_at.desc`. Returns the JSON rows.
+    func select(_ query: String) async throws -> [[String: Any]] {
+        let data = try await send("rest/v1/\(query)", method: "GET", token: try await validToken())
+        return (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
+    func update(_ table: String, id: String, fields: [String: Any]) async throws {
+        try await send("rest/v1/\(table)?id=eq.\(id)", method: "PATCH", body: json(fields), token: try await validToken(),
+                       headers: ["Prefer": "return=minimal"])
+    }
+
     func delete(_ table: String, id: String) async throws {
         try await send("rest/v1/\(table)?id=eq.\(id)", method: "DELETE", token: try await validToken())
     }
