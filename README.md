@@ -1,4 +1,4 @@
-# Ride Logger
+# OBD2-Web : Ride Logger
 
 Logs rides from a BLE ELM327 OBD2 adapter plus phone GPS to Supabase, and shows ride history with route map, charts and fault codes. Built for a Suzuki Access 125 (OBD-II over ISO 15765-4 CAN, 11-bit, 500 kbaud, ECU `7E8`).
 
