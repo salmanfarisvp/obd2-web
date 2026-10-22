@@ -7,25 +7,10 @@ import RequireAuth from "@/components/RequireAuth";
 import RideChart from "@/components/RideChart";
 import { supabase, Ride, Reading, FaultCode } from "@/lib/supabase";
 import { formatDuration } from "@/lib/geo";
+import { completeRide, fetchReadings } from "@/lib/rideSummary";
 
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
 const MAX_CHART_POINTS = 600;
-
-async function fetchReadings(rideId: string) {
-  const rows: Reading[] = [];
-  const page = 1000; // Supabase caps responses at 1000 rows by default
-  for (let from = 0; ; from += page) {
-    const { data, error } = await supabase
-      .from("readings")
-      .select("*")
-      .eq("ride_id", rideId)
-      .order("ts")
-      .range(from, from + page - 1);
-    if (error) throw error;
-    rows.push(...(data as Reading[]));
-    if (data.length < page) return rows;
-  }
-}
 
 function RideDetail({ id }: { id: string }) {
   const router = useRouter();
@@ -45,6 +30,7 @@ function RideDetail({ id }: { id: string }) {
           supabase.from("fault_codes").select("*").eq("ride_id", id),
         ]);
         setReadings(rows);
+        setRide(await completeRide(data as Ride, rows));
         setCodes((dtc.data as FaultCode[]) ?? []);
       } catch (e) {
         setError((e as Error).message);

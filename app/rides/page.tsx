@@ -4,20 +4,22 @@ import Link from "next/link";
 import RequireAuth from "@/components/RequireAuth";
 import { supabase, Ride } from "@/lib/supabase";
 import { formatDuration } from "@/lib/geo";
+import { completeRide } from "@/lib/rideSummary";
 
 function RideList() {
   const [rides, setRides] = useState<Ride[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("rides")
-      .select("*")
-      .order("started_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) setError(error.message);
-        else setRides(data as Ride[]);
-      });
+    (async () => {
+      const { data, error } = await supabase.from("rides").select("*").order("started_at", { ascending: false });
+      if (error) return setError(error.message);
+      setRides(data as Ride[]);
+      // Rides that were never stopped have no totals yet; work them out from their readings.
+      if ((data as Ride[]).some((r) => r.ended_at === null)) {
+        setRides(await Promise.all((data as Ride[]).map((r) => completeRide(r).catch(() => r))));
+      }
+    })();
   }, []);
 
   if (error) return <p className="error">{error}</p>;
@@ -46,7 +48,7 @@ function RideList() {
               </div>
               <div className="muted" style={{ fontSize: 13 }}>
                 {r.vehicle_name} · {formatDuration(r.duration_s)}
-                {r.ended_at === null && " · not finished"}
+                {r.ended_at === null && " · in progress"}
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
