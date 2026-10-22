@@ -1,10 +1,11 @@
 // Web Bluetooth transport for BLE ELM327 adapters.
 // Adapters use different GATT layouts, so we ask for the common services
 // and pick whichever characteristics can notify and write.
+// Full 128-bit strings only: Bluefy (iOS) rejects numeric short UUIDs.
 const KNOWN_SERVICES: BluetoothServiceUUID[] = [
-  0xfff0,
-  0xffe0,
-  0x18f0,
+  "0000fff0-0000-1000-8000-00805f9b34fb",
+  "0000ffe0-0000-1000-8000-00805f9b34fb",
+  "000018f0-0000-1000-8000-00805f9b34fb",
   "e7810a71-73ae-499d-8c15-faa9aef0c3f2", // Vgate / vLinker
   "0000ae30-0000-1000-8000-00805f9b34fb",
 ];
