@@ -22,7 +22,7 @@ main { max-width: 960px; margin: 0 auto; padding: 16px; }
 h1 { font-size: 22px; margin: 4px 0 16px; }
 h2 { font-size: 16px; margin: 24px 0 8px; color: var(--muted); font-weight: 600; }
 nav {
-  display: flex; gap: 4px; align-items: center;
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
   padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
   position: sticky; top: 0; z-index: 1000;
 }

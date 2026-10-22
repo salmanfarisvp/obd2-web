@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Nav from "@/components/Nav";
+import { RecorderProvider } from "@/components/RecorderProvider";
 import "./globals.css";
 
 export const metadata: Metadata = { title: "Ride Logger", description: "OBD2 ride and engine logger" };
@@ -9,8 +10,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <Nav />
-        <main>{children}</main>
+        <RecorderProvider>
+          <Nav />
+          <main>{children}</main>
+        </RecorderProvider>
       </body>
     </html>
   );
