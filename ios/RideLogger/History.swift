@@ -17,6 +17,10 @@ struct RideRecord: Identifiable {
     var idleS: Double?
     var stops: Int?
     var note: String?
+    /// Still on the phone, not fully uploaded yet.
+    var pending = false
+    /// Being recorded right now.
+    var recording = false
 
     init?(_ row: [String: Any]) {
         guard let id = row["id"] as? String, let started = parseDate(row["started_at"]) else { return nil }

@@ -2,10 +2,12 @@ import Combine
 import CoreBluetooth
 import CoreLocation
 import Foundation
+import UIKit
 
 /// Automatic ride logging, same rules as the web app's RecorderProvider:
 /// a ride starts when the engine starts and is saved when the power goes (adapter disconnects
 /// or the ECU goes silent), or after the engine has been off for a while with the ignition on.
+/// Rides are recorded to the phone (LocalStore) and uploaded whole when they end.
 @MainActor
 final class Recorder: ObservableObject {
     enum Phase { case idle, waiting, recording }
@@ -26,14 +28,16 @@ final class Recorder: ObservableObject {
 
     let bluetooth = BluetoothManager()
     let location = LocationTracker()
-    let queue = UploadQueue()
+    let store = LocalStore.shared
+    /// Readings queued by earlier versions of the app; drained, then unused.
+    private let legacyQueue = UploadQueue()
 
     private struct ActiveRide {
-        let base: [String: Any]
-        var id: String { base["id"] as! String }
+        let id: String
         var rows: [Reading] = []
         let manual: Bool
         var lastRunningAt = Date()
+        var lastLoggedAt = Date.distantPast
     }
 
     private var forwarders: [AnyCancellable] = []
@@ -43,31 +47,43 @@ final class Recorder: ObservableObject {
     private var waitForEngineOff = false
     private var ecuSilentSince: Date?
 
-    private static let sampleInterval: Duration = .seconds(1)
+    private static let sampleInterval: TimeInterval = 1
     // ECU stopped answering: ignition is off, so the ride is over.
     private static let ecuSilentLimit: TimeInterval = 10
     // ECU answering but RPM 0: engine off with ignition on (or stalled). Allow a restart.
     private static let engineOffLimit: TimeInterval = 60
+
+    var pendingCount: Int { store.pending.filter { !$0.recording }.count + legacyQueue.pendingCount }
 
     init() {
         // Views read the adapter, GPS and upload state through the recorder.
         forwarders = [
             bluetooth.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
             location.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
-            queue.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
+            store.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
+            legacyQueue.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() },
         ]
         bluetooth.onReady = { [weak self] link in self?.adapterReady(link) }
         bluetooth.onDisconnect = { [weak self] in self?.adapterLost() }
+        DiagLog.log("App launched")
+        store.recoverInterrupted()
         if bluetooth.hasSavedAdapter {
             link = .reconnecting
             location.start(precise: false)
         }
+        // Upload finished rides whenever there's something to send.
         Task { [weak self] in
             while let self {
-                await self.queue.flush()
-                try? await Task.sleep(for: .seconds(5))
+                await self.legacyQueue.flush()
+                await self.store.uploadFinished()
+                try? await Task.sleep(for: .seconds(30))
             }
         }
+    }
+
+    func appPhaseChanged(active: Bool) {
+        DiagLog.log(active ? "App in foreground" : "App in background\(phase == .recording ? " (recording)" : "")")
+        if active { Task { await store.uploadFinished() } }
     }
 
     // MARK: - Adapter
@@ -80,7 +96,7 @@ final class Recorder: ObservableObject {
 
     func forgetAdapter() {
         bluetooth.forget()
-        if let ride, !ride.manual { endRide() }
+        if let ride, !ride.manual { endRide(reason: "adapter forgotten") }
         elm = nil
         ecuOk = false
         link = .none
@@ -93,8 +109,10 @@ final class Recorder: ObservableObject {
             do {
                 try await elm.initialize()
             } catch {
+                DiagLog.log("Adapter setup failed: \(error.localizedDescription)")
                 return // the adapter dropped again; iOS will reconnect
             }
+            DiagLog.log("Adapter connected")
             self.elm = elm
             link = .connected
             ecuSilentSince = nil
@@ -104,11 +122,12 @@ final class Recorder: ObservableObject {
     }
 
     private func adapterLost() {
+        DiagLog.log("Adapter disconnected")
         elm = nil
         ecuOk = false
         if bluetooth.hasSavedAdapter { link = .reconnecting }
         // Adapter lost power with the scooter: save the ride now.
-        if let ride, !ride.manual { endRide() }
+        if let ride, !ride.manual { endRide(reason: "adapter off") }
     }
 
     // MARK: - Rides
@@ -124,33 +143,26 @@ final class Recorder: ObservableObject {
         guard let ride else { return }
         // Don't let an engine that is still running start a new ride straight away.
         if !ride.manual { waitForEngineOff = true }
-        endRide()
+        endRide(reason: "ended by you")
     }
 
     private func startRide(manual: Bool) {
-        let base: [String: Any] = [
-            "id": UUID().uuidString.lowercased(),
+        let id = UUID().uuidString.lowercased()
+        store.startRide([
+            "id": id,
             "vehicle_name": vehicle,
             "started_at": isoFormatter.string(from: Date()),
             "obd_connected": !manual,
-        ]
-        let new = ActiveRide(base: base, manual: manual)
-        ride = new
-        queue.queueRide(base)
+        ], faultCodes: dtcs)
+        ride = ActiveRide(id: id, manual: manual)
         rideStartedAt = Date()
         stats = Totals()
         phase = .recording
         location.start(precise: true)
-        let codes = dtcs
-        Task {
-            await queue.flush()
-            if let codes, !codes.isEmpty {
-                try? await SupabaseClient.shared.insert("fault_codes", rows: codes.map { ["ride_id": new.id, "code": $0] })
-            }
-        }
+        DiagLog.log("Ride \(id.prefix(8)) started (\(manual ? "GPS only" : "engine on"))")
     }
 
-    private func endRide() {
+    private func endRide(reason: String) {
         guard let finished = ride else { return }
         ride = nil
         rideStartedAt = nil
@@ -159,23 +171,30 @@ final class Recorder: ObservableObject {
 
         guard let last = finished.rows.last else {
             // Nothing was logged (engine never really ran); drop the empty ride.
-            queue.dropRide(id: finished.id)
+            store.discard(id: finished.id)
+            DiagLog.log("Ride \(finished.id.prefix(8)) dropped, no readings (\(reason))")
             return
         }
         let totals = summarize(finished.rows)
-        var row = finished.base.merging(totals.row) { _, new in new }
-        row["ended_at"] = isoFormatter.string(from: last.ts)
-        queue.queueRide(row)
+        store.finishRide(id: finished.id, totals: totals, endedAt: last.ts)
         lastSaved = SavedRide(id: finished.id, start: finished.rows[0].ts, end: last.ts, distanceKm: totals.distanceKm)
-        Task { await queue.flush() }
+        let withGps = finished.rows.filter { $0.lat != nil }.count
+        DiagLog.log("Ride \(finished.id.prefix(8)) ended (\(reason)): \(finished.rows.count) readings, "
+            + "GPS on \(withGps * 100 / finished.rows.count)%, \(fmt(totals.distanceKm, 2)) km")
+        Task { await store.uploadFinished() }
     }
 
     private func log(_ sample: Sample) {
         guard let current = ride else { return }
-        let fix = location.latest.flatMap { $0.horizontalAccuracy >= 0 && Date().timeIntervalSince($0.timestamp) < 10 ? $0 : nil }
+        let now = Date()
+        // Gaps over a few seconds mean the app wasn't running; worth knowing about.
+        if let prev = current.rows.last, now.timeIntervalSince(prev.ts) > 5 {
+            DiagLog.log("Logging gap of \(Int(now.timeIntervalSince(prev.ts)))s")
+        }
+        let fix = location.latest.flatMap { $0.horizontalAccuracy >= 0 && now.timeIntervalSince($0.timestamp) < 10 ? $0 : nil }
         let reading = Reading(
             rideId: current.id,
-            ts: Date(),
+            ts: now,
             lat: fix?.coordinate.latitude,
             lon: fix?.coordinate.longitude,
             gpsSpeed: fix.flatMap { $0.speed >= 0 ? $0.speed * 3.6 : nil },
@@ -183,7 +202,8 @@ final class Recorder: ObservableObject {
             manual: current.manual
         )
         ride?.rows.append(reading)
-        queue.add(reading.row)
+        ride?.lastLoggedAt = now
+        store.append(reading)
     }
 
     // MARK: - Polling loop
@@ -192,8 +212,9 @@ final class Recorder: ObservableObject {
         guard loop == nil else { return }
         if ride == nil { phase = elm != nil ? .waiting : .idle }
         loop = Task {
+            var wasSilent = false
             while elm != nil || ride != nil {
-                let tickStart = ContinuousClock.now
+                let tickStart = Date()
                 var sample = Sample()
                 var engineOn = false
 
@@ -204,23 +225,39 @@ final class Recorder: ObservableObject {
                     ecuOk = result.ecuOk
                     engineOn = result.ecuOk && (sample.rpm ?? 0) > 0
                     ecuSilentSince = result.ecuOk ? nil : (ecuSilentSince ?? Date())
+                    if result.ecuOk == wasSilent {
+                        wasSilent = !result.ecuOk
+                        DiagLog.log(result.ecuOk ? "ECU answering" : "ECU not answering")
+                    }
                     if !engineOn { waitForEngineOff = false }
                     if engineOn, ride == nil, !waitForEngineOff { startRide(manual: false) }
                 }
 
                 if let current = ride {
                     if current.manual || engineOn {
-                        log(sample)
+                        if Date().timeIntervalSince(current.lastLoggedAt) >= Self.sampleInterval * 0.9 { log(sample) }
                         if engineOn { ride?.lastRunningAt = Date() }
                     } else {
                         let silent = ecuSilentSince.map { Date().timeIntervalSince($0) > Self.ecuSilentLimit } ?? false
-                        if silent || Date().timeIntervalSince(current.lastRunningAt) > Self.engineOffLimit { endRide() }
+                        if silent { endRide(reason: "ECU silent") }
+                        else if Date().timeIntervalSince(current.lastRunningAt) > Self.engineOffLimit { endRide(reason: "engine off") }
                     }
                 }
 
                 live = sample
                 if let ride { stats = summarize(ride.rows) }
-                try? await Task.sleep(until: tickStart + Self.sampleInterval, clock: .continuous)
+                location.checkHealth()
+
+                // In the background, go straight to the next request instead of sleeping: each adapter
+                // reply wakes the app, so polling keeps going even if iOS tries to suspend it. A sleep
+                // timer would not fire while suspended. Rows are still logged at most once a second.
+                let inBackground = UIApplication.shared.applicationState == .background
+                let wait = Self.sampleInterval - Date().timeIntervalSince(tickStart)
+                if elm != nil, ride != nil, inBackground {
+                    await Task.yield()
+                } else if wait > 0 {
+                    try? await Task.sleep(for: .milliseconds(Int(wait * 1000)))
+                }
             }
             loop = nil
             if ride == nil { phase = elm != nil ? .waiting : .idle }

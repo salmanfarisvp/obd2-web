@@ -11,7 +11,13 @@ has: ride history with map replay, fuel log, mileage and costs, and profile.
 - Starts a ride when the engine starts and saves it when the power goes, with the same rules as
   the web app (adapter off: immediately; ECU silent: 10 s; engine off with ignition on: 60 s).
 - Logs OBD readings and GPS every second, in the background too.
-- Queues uploads on the phone and sends them when there's signal.
+- Records every ride to the phone first: each reading is saved the moment it's logged, so a ride
+  survives iOS closing the app. The whole ride uploads when it ends (retried until Supabase has
+  all of it), and History shows it as "⏳ not uploaded yet" until then.
+- Warns on the Ride tab if location permission, Precise Location or GPS updates would stop
+  logging with the phone locked.
+- **Profile → Diagnostics**: a log of app, GPS, Bluetooth, ride and upload events, to share if a
+  ride looks wrong.
 - GPS-only rides when there's no adapter.
 - **History tab**: totals, ride list, and per ride the stats, a note you can edit, an Apple Maps
   route coloured by speed, a replay slider with play (10×/30×/60×) showing the readings at each
@@ -42,6 +48,7 @@ login and queued data are kept. A paid Apple Developer account removes that limi
 ## First ride
 
 1. Open the app and sign in with your website account.
-2. Allow Bluetooth, and allow location **Always** when asked (needed for logging with the screen locked).
+2. Allow Bluetooth and location. When iOS later asks, choose **Change to Always Allow**, and keep
+   **Precise Location** on (Settings → Apps → Ride Logger → Location).
 3. Close Car Scanner and Bluefy, switch the scooter on, tap **Choose adapter** and pick it.
 4. Ride. You can lock the phone. The blue location indicator shows it's logging.

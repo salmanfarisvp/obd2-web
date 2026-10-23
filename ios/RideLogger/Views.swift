@@ -6,6 +6,7 @@ struct RideLoggerApp: App {
     @StateObject private var client = SupabaseClient.shared
     @StateObject private var recorder = Recorder()
     @StateObject private var fuel = FuelStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -25,6 +26,9 @@ struct RideLoggerApp: App {
             .environmentObject(recorder)
             .environmentObject(fuel)
             .preferredColorScheme(.dark)
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .inactive { recorder.appPhaseChanged(active: phase == .active) }
+            }
         }
     }
 }
@@ -80,6 +84,7 @@ struct MainView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let problem = recorder.location.problem { locationWarning(problem) }
                 statusSection
                 if recorder.link == .connected || recorder.phase == .recording { liveSection }
                 if recorder.phase == .recording { rideSection }
@@ -89,6 +94,16 @@ struct MainView: View {
             .navigationTitle("🛵 Ride Logger")
             .keyboardDismissable()
             .sheet(isPresented: $picking) { AdapterPicker(isPresented: $picking) }
+        }
+    }
+
+    private func locationWarning(_ problem: LocationTracker.Problem) -> some View {
+        Section {
+            Label(problem.message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Text("Set Location to **Always** with **Precise Location** on.").font(.caption)
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            }
         }
     }
 
@@ -116,11 +131,15 @@ struct MainView: View {
                 } else {
                     Pill(text: "GPS waiting", color: .gray)
                 }
-                if recorder.queue.pendingCount > 0 {
-                    Pill(text: "\(recorder.queue.pendingCount) unsent", color: .orange)
+                if recorder.pendingCount > 0 {
+                    Pill(text: "⏳ \(recorder.pendingCount) to upload", color: .orange)
                 }
             }
             Text(statusText)
+            if recorder.location.status == .authorizedWhenInUse, recorder.location.problem == nil {
+                Text("Tip: set Location to Always in Settings for the most reliable logging with the phone locked.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if recorder.phase != .recording {
                 TextField("Vehicle", text: $recorder.vehicle)
             }

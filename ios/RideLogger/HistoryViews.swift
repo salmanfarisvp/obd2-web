@@ -6,8 +6,16 @@ import SwiftUI
 
 struct RidesView: View {
     @EnvironmentObject private var fuel: FuelStore
-    @State private var rides: [RideRecord]?
+    @ObservedObject private var store = LocalStore.shared
+    @State private var uploaded: [RideRecord]?
     @State private var error: String?
+
+    /// Rides still on the phone first, then those in Supabase.
+    private var rides: [RideRecord]? {
+        guard let uploaded else { return nil }
+        let local = store.pending
+        return local + uploaded.filter { r in !local.contains { $0.id == r.id } }
+    }
 
     var body: some View {
         NavigationStack {
@@ -33,21 +41,26 @@ struct RidesView: View {
             .navigationDestination(for: String.self) { id in
                 if let ride = rides?.first(where: { $0.id == id }) {
                     RideDetailView(ride: ride, onChange: { updated in
-                        if let i = rides?.firstIndex(where: { $0.id == updated.id }) { rides?[i] = updated }
+                        if let i = uploaded?.firstIndex(where: { $0.id == updated.id }) { uploaded?[i] = updated }
                     }, onDelete: {
-                        rides?.removeAll { $0.id == id }
+                        uploaded?.removeAll { $0.id == id }
                     })
                 }
             }
-            .refreshable { await load() }
-            .task { if rides == nil { await load() } }
+            .refreshable {
+                await store.uploadFinished()
+                await load()
+            }
+            .task { if uploaded == nil { await load() } }
+            // A ride just finished uploading: show the server copy.
+            .onChange(of: store.pending.count) { _, _ in Task { await load() } }
         }
     }
 
     private func load() async {
         async let fuelData: Void = fuel.load()
         do {
-            rides = try await History.rides()
+            uploaded = try await History.rides()
             await fuelData
             error = nil
         } catch {
@@ -76,7 +89,7 @@ private struct RideRow: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(timeRange(ride)).font(.subheadline.weight(.semibold))
-                Text("\(ride.vehicleName) · \(duration(ride.durationS ?? 0))\(ride.endedAt == nil ? " · in progress" : "")")
+                Text("\(ride.vehicleName) · \(duration(ride.durationS ?? 0))\(ride.recording ? " · ● recording" : ride.pending ? " · ⏳ not uploaded yet" : ride.endedAt == nil ? " · in progress" : "")")
                     .font(.caption).foregroundStyle(.secondary)
                 if let note = ride.note, !note.isEmpty {
                     Text("📝 \(note)").font(.caption).lineLimit(2)
@@ -164,7 +177,7 @@ struct RideDetailView: View {
                 }
             }
             Section {
-                Button("Delete ride", role: .destructive) { confirmDelete = true }
+                Button("Delete ride", role: .destructive) { confirmDelete = true }.disabled(ride.recording)
             }
             if let error { Text(error).foregroundStyle(.red) }
         }
@@ -364,6 +377,16 @@ struct RideDetailView: View {
     }
 
     private func load() async {
+        if ride.pending {
+            // Still on the phone: read it from there.
+            readings = LocalStore.shared.readings(ride.id)
+            codes = LocalStore.shared.faultCodes(ride.id)
+            ride.fillMissing(from: readings)
+            note = ride.note ?? ""
+            prepare()
+            loaded = true
+            return
+        }
         do {
             async let rows = History.readings(rideId: ride.id)
             async let faults = History.faultCodes(rideId: ride.id)
@@ -446,7 +469,12 @@ struct RideDetailView: View {
         noteStatus = "Saving…"
         Task {
             do {
-                try await History.saveNote(rideId: ride.id, note: note)
+                let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+                if LocalStore.shared.isPending(ride.id) {
+                    LocalStore.shared.setNote(id: ride.id, note: trimmed.isEmpty ? nil : trimmed) // uploaded with the ride
+                } else {
+                    try await History.saveNote(rideId: ride.id, note: note)
+                }
                 ride.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
                 note = ride.note ?? ""
                 onChange(ride)
@@ -460,7 +488,11 @@ struct RideDetailView: View {
     private func delete() {
         Task {
             do {
-                try await History.delete(rideId: ride.id)
+                if LocalStore.shared.isPending(ride.id) {
+                    LocalStore.shared.discard(id: ride.id)
+                } else {
+                    try await History.delete(rideId: ride.id)
+                }
                 onDelete()
                 dismiss()
             } catch {

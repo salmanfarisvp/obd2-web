@@ -252,6 +252,11 @@ struct ProfileView: View {
                     Button("Save profile") { save() }
                     if let status { Text(status).foregroundStyle(.secondary) }
                 }
+                Section {
+                    NavigationLink("Diagnostics") { DiagnosticsView() }
+                } footer: {
+                    Text("What the app, GPS, Bluetooth and uploads did. Share it if a ride looks wrong.")
+                }
                 Section("Account") {
                     Text(client.session?.email ?? "").foregroundStyle(.secondary)
                     Button("Sign out", role: .destructive) { client.signOut() }
@@ -315,5 +320,51 @@ struct ProfileView: View {
 private extension View {
     func decimalField() -> some View {
         keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+    }
+}
+
+struct DiagnosticsView: View {
+    @EnvironmentObject private var recorder: Recorder
+    @State private var text = ""
+
+    var body: some View {
+        List {
+            Section("Now") {
+                LabeledContent("Location permission", value: permission)
+                LabeledContent("Precise Location", value: recorder.location.preciseAllowed ? "On" : "Off")
+                LabeledContent("Last GPS update", value: recorder.location.lastUpdateAt.map { $0.formatted(date: .omitted, time: .standard) } ?? "None")
+                LabeledContent("Rides to upload", value: "\(recorder.pendingCount)")
+            }
+            Section("Log") {
+                Text(text.isEmpty ? "Nothing logged yet." : text)
+                    .font(.system(.caption2, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+        }
+        .navigationTitle("Diagnostics")
+        .toolbar {
+            ShareLink(item: text)
+            Button("Clear") {
+                DiagLog.clear()
+                text = ""
+            }
+        }
+        .onAppear { text = newestFirst(DiagLog.read()) }
+        .refreshable { text = newestFirst(DiagLog.read()) }
+    }
+
+    private var permission: String {
+        switch recorder.location.status {
+        case .authorizedAlways: return "Always"
+        case .authorizedWhenInUse: return "While Using"
+        case .denied: return "Denied"
+        case .restricted: return "Restricted"
+        case .notDetermined: return "Not decided"
+        @unknown default: return "Unknown"
+        }
+    }
+
+    private func newestFirst(_ log: String) -> String {
+        log.split(separator: "\n").suffix(400).reversed().joined(separator: "\n")
     }
 }

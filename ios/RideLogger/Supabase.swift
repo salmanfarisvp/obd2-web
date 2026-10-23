@@ -78,6 +78,11 @@ final class SupabaseClient: ObservableObject {
         return (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
     }
 
+    func delete(_ table: String, column: String, equals value: String) async throws {
+        let encoded = value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
+        try await send("rest/v1/\(table)?\(column)=eq.\(encoded)", method: "DELETE", token: try await validToken())
+    }
+
     func delete(_ table: String, id: String) async throws {
         try await send("rest/v1/\(table)?id=eq.\(id)", method: "DELETE", token: try await validToken())
     }
