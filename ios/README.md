@@ -23,6 +23,11 @@ has: ride history with map replay, fuel log, mileage and costs, and profile.
   route coloured by speed, a replay slider with play (10×/30×/60×) showing the readings at each
   moment, charts you can touch to jump to a moment, and fault codes. Per vehicle: mileage (real or
   estimated), fuel used, fuel cost and cost per km; per ride: fuel, mileage, cost and cost per km.
+- **Share** (on a ride): a picture of the ride over a dimmed map with ride and engine details, to
+  send or save. Square or Story size, with an option to hide the start and end.
+- **Merging**: an engine restart within the Profile's merge time (default 10 min) continues the
+  ride; the stop shows as a ☕ break. Finished rides wait that long on the phone before uploading.
+  In History, **Select** and **Merge** joins uploaded rides by hand.
 - **Fuel tab**: add fill-ups by amount or litres (the other is worked out from the price), mark
   full tanks, see real mileage and spending, swipe to delete.
 - **Profile tab**: currency, petrol price, vehicles with tank capacity, and sign out.

@@ -9,6 +9,16 @@ struct RidesView: View {
     @ObservedObject private var store = LocalStore.shared
     @State private var uploaded: [RideRecord]?
     @State private var error: String?
+    @State private var selecting = false
+    @State private var selected: Set<String> = []
+    @State private var confirmMerge = false
+    @State private var merging = false
+
+    /// Two or more uploaded rides on the same vehicle.
+    private var canMerge: Bool {
+        let picked = (uploaded ?? []).filter { selected.contains($0.id) }
+        return picked.count >= 2 && Set(picked.map(\.vehicleName)).count == 1
+    }
 
     /// Rides still on the phone first, then those in Supabase.
     private var rides: [RideRecord]? {
@@ -25,10 +35,31 @@ struct RidesView: View {
                     Section("Mileage & cost") {
                         ForEach(Array(Set(rides.map(\.vehicleName))).sorted(), id: \.self) { VehicleCostCard(vehicle: $0) }
                     }
-                    Section("Rides") {
+                    Section {
                         if rides.isEmpty { Text("No rides yet.").foregroundStyle(.secondary) }
                         ForEach(rides) { ride in
-                            NavigationLink(value: ride.id) { RideRow(ride: ride, cost: fuel.cost(for: ride).map { money(fuel.currency, $0) }) }
+                            let row = RideRow(ride: ride, cost: fuel.cost(for: ride).map { money(fuel.currency, $0) })
+                            if selecting {
+                                Button {
+                                    if selected.contains(ride.id) { selected.remove(ride.id) } else { selected.insert(ride.id) }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: selected.contains(ride.id) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(selected.contains(ride.id) ? Color.accentColor : .secondary)
+                                        row
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(ride.pending) // only uploaded rides can be merged
+                            } else {
+                                NavigationLink(value: ride.id) { row }
+                            }
+                        }
+                    } header: {
+                        Text("Rides")
+                    } footer: {
+                        if selecting {
+                            Text("Pick two or more rides on the same vehicle; the time between them becomes breaks.")
                         }
                     }
                 } else if let error {
@@ -38,6 +69,26 @@ struct RidesView: View {
                 }
             }
             .navigationTitle("History")
+            .toolbar {
+                if selecting {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Cancel") { selecting = false; selected = [] }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(merging ? "Merging…" : "Merge \(selected.count)") { confirmMerge = true }
+                            .disabled(!canMerge || merging)
+                    }
+                } else if (rides?.count ?? 0) > 1 {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Select") { selecting = true }
+                    }
+                }
+            }
+            .confirmationDialog("Merge \(selected.count) rides into one?", isPresented: $confirmMerge, titleVisibility: .visible) {
+                Button("Merge") { merge() }
+            } message: {
+                Text("The time between them becomes breaks. This can't be undone.")
+            }
             .navigationDestination(for: String.self) { id in
                 if let ride = rides?.first(where: { $0.id == id }) {
                     RideDetailView(ride: ride, onChange: { updated in
@@ -54,6 +105,22 @@ struct RidesView: View {
             .task { if uploaded == nil { await load() } }
             // A ride just finished uploading: show the server copy.
             .onChange(of: store.pending.count) { _, _ in Task { await load() } }
+        }
+    }
+
+    private func merge() {
+        let picked = (uploaded ?? []).filter { selected.contains($0.id) }
+        merging = true
+        Task {
+            do {
+                let merged = try await History.merge(picked)
+                uploaded = uploaded?.filter { !selected.contains($0.id) || $0.id == merged.id }.map { $0.id == merged.id ? merged : $0 }
+                selected = []
+                selecting = false
+            } catch {
+                self.error = error.localizedDescription
+            }
+            merging = false
         }
     }
 
@@ -89,7 +156,7 @@ private struct RideRow: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(timeRange(ride)).font(.subheadline.weight(.semibold))
-                Text("\(ride.vehicleName) · \(duration(ride.durationS ?? 0))\(ride.recording ? " · ● recording" : ride.pending ? " · ⏳ not uploaded yet" : ride.endedAt == nil ? " · in progress" : "")")
+                Text("\(ride.vehicleName) · \(duration(ride.durationS ?? 0))\((ride.breaks ?? 0) > 0 ? " · ☕ \(ride.breaks!)" : "")\(ride.recording ? " · ● recording" : ride.pending ? " · ⏳ not uploaded yet" : ride.endedAt == nil ? " · in progress" : "")")
                     .font(.caption).foregroundStyle(.secondary)
                 if let note = ride.note, !note.isEmpty {
                     Text("📝 \(note)").font(.caption).lineLimit(2)
@@ -152,6 +219,7 @@ struct RideDetailView: View {
     @State private var note = ""
     @State private var noteStatus: String?
     @State private var confirmDelete = false
+    @State private var sharing = false
 
     // Derived once readings load.
     @State private var segments: [Segment] = []
@@ -159,6 +227,7 @@ struct RideDetailView: View {
     @State private var gpsIndices: [Int] = []
     @State private var chartPoints: [ChartPoint] = []
     @State private var selectedMinute: Double?
+    @State private var breakPins: [(coordinate: CLLocationCoordinate2D, seconds: Double)] = []
 
     private static let maxChartPoints = 300
 
@@ -183,6 +252,12 @@ struct RideDetailView: View {
         }
         .navigationTitle(ride.startedAt.formatted(date: .abbreviated, time: .shortened))
         .keyboardDismissable()
+        .toolbar {
+            if !readings.isEmpty {
+                Button { sharing = true } label: { Image(systemName: "square.and.arrow.up") }
+            }
+        }
+        .sheet(isPresented: $sharing) { ShareRideSheet(readings: readings, content: shareContent) }
         .confirmationDialog("Delete this ride?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { delete() }
         }
@@ -193,6 +268,35 @@ struct RideDetailView: View {
             playing = false
             cursor = nearest.id
         }
+    }
+
+    private var shareContent: ShareCardContent {
+        let km = ride.distanceKm ?? 0
+        let ridingS = (ride.movingS ?? 0) > 0 ? ride.movingS! : (ride.durationS ?? 0)
+        let litres = fuel.fuel(for: ride)
+        let cost = fuel.cost(for: ride)
+        let coolant = readings.compactMap(\.sample.coolant).max()
+        var engine: [CardStat] = []
+        if let rpm = ride.maxRpm { engine.append(CardStat(label: "Max RPM", value: fmt(rpm))) }
+        if let coolant { engine.append(CardStat(label: "Coolant", value: fmt(coolant), unit: "°C")) }
+        if let litres, litres > 0 {
+            engine.append(CardStat(label: "Fuel", value: fmt(litres, 2), unit: "L"))
+            if km > 0 { engine.append(CardStat(label: "Mileage", value: fmt(km / litres, 1), unit: "km/L")) }
+        }
+        if let cost { engine.append(CardStat(label: "Cost", value: money(fuel.currency, cost))) }
+        if let idle = ride.idleS, idle > 0 { engine.append(CardStat(label: "Idle", value: duration(idle))) }
+        let date = ride.startedAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute())
+        return ShareCardContent(
+            title: rideTitle(ride.startedAt, note: ride.note),
+            subtitle: "\(date) · \(ride.vehicleName)",
+            main: [
+                CardStat(label: "Distance", value: fmt(km, km < 10 ? 2 : 1), unit: "km"),
+                CardStat(label: "Riding time", value: duration(ridingS)),
+                CardStat(label: "Avg speed", value: ridingS > 0 ? fmt(km / (ridingS / 3600)) : "–", unit: "km/h"),
+                CardStat(label: "Top speed", value: fmt(ride.maxSpeed ?? 0), unit: "km/h"),
+            ],
+            engine: engine
+        )
     }
 
     // MARK: Sections
@@ -210,6 +314,7 @@ struct RideDetailView: View {
                 ("Riding", ride.movingS.map(duration) ?? "–", ""),
                 ("Idle", ride.idleS.map(duration) ?? "–", ""),
                 ("Stops", ride.stops.map(String.init) ?? "–", ""),
+                ("Breaks", (ride.breaks ?? 0) > 0 ? "\(ride.breaks!) · \(duration(ride.breakS ?? 0))" : "–", ""),
                 ("Avg speed", fmt(ride.avgSpeed ?? 0), "km/h"),
                 ("Max speed", fmt(ride.maxSpeed ?? 0), "km/h"),
                 ("Max RPM", fmt(ride.maxRpm), ""),
@@ -248,6 +353,9 @@ struct RideDetailView: View {
                     }
                     if let end = segments.last?.coords.last {
                         Annotation("End", coordinate: end) { dot(.red, size: 12) }
+                    }
+                    ForEach(Array(breakPins.enumerated()), id: \.offset) { _, b in
+                        Annotation("\(Int(b.seconds / 60)) min", coordinate: b.coordinate) { Text("☕").font(.title3) }
                     }
                     if cursor < positions.count, let here = positions[cursor] {
                         Annotation("", coordinate: here) { dot(.blue, size: 18) }
@@ -427,6 +535,10 @@ struct RideDetailView: View {
         segments = segs.count == 1 && segs[0].coords.count < 2 ? [] : segs
         positions = pos
         gpsIndices = gps
+        breakPins = findBreaks(readings).compactMap { b in
+            guard let lat = b.lat, let lon = b.lon else { return nil }
+            return (CLLocationCoordinate2D(latitude: lat, longitude: lon), b.seconds)
+        }
 
         let step = max(1, readings.count / Self.maxChartPoints)
         let t0 = readings.first?.ts ?? Date()

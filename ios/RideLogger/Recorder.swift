@@ -75,10 +75,19 @@ final class Recorder: ObservableObject {
         Task { [weak self] in
             while let self {
                 await self.legacyQueue.flush()
+                await self.refreshMergeGap()
                 await self.store.uploadFinished()
                 try? await Task.sleep(for: .seconds(30))
             }
         }
+    }
+
+    /// Keep the Profile's merge setting cached for LocalStore, which works offline.
+    private func refreshMergeGap() async {
+        guard SupabaseClient.shared.session != nil,
+              let rows = try? await SupabaseClient.shared.select("profiles?select=merge_gap_min"),
+              let gap = num(rows.first?["merge_gap_min"]) else { return }
+        UserDefaults.standard.set(Int(gap), forKey: "merge-gap-min")
     }
 
     func appPhaseChanged(active: Bool) {
@@ -143,10 +152,22 @@ final class Recorder: ObservableObject {
         guard let ride else { return }
         // Don't let an engine that is still running start a new ride straight away.
         if !ride.manual { waitForEngineOff = true }
+        // Ended on purpose: the next engine start is a new ride, so upload this one now.
+        store.markNoMerge(id: ride.id)
         endRide(reason: "ended by you")
     }
 
     private func startRide(manual: Bool) {
+        // Engine started again soon after the last ride on this vehicle: continue it, the gap becomes a break.
+        if !manual, let recent = store.reopenRecent(vehicle: vehicle) {
+            ride = ActiveRide(id: recent.id, rows: recent.readings, manual: false)
+            rideStartedAt = recent.readings.first?.ts ?? Date()
+            stats = summarize(recent.readings)
+            phase = .recording
+            location.start(precise: true)
+            DiagLog.log("Ride \(recent.id.prefix(8)) continued after a \(Int(recent.breakS / 60)) min break")
+            return
+        }
         let id = UUID().uuidString.lowercased()
         store.startRide([
             "id": id,

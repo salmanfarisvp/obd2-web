@@ -48,6 +48,8 @@ struct Totals {
     var movingS = 0.0
     var idleS = 0.0
     var stops = 0
+    var breaks = 0
+    var breakS = 0.0
 
     var row: [String: Any] {
         func v(_ x: Double?) -> Any { x ?? NSNull() }
@@ -55,6 +57,7 @@ struct Totals {
             "distance_km": distanceKm, "duration_s": Int(durationS.rounded()), "avg_speed": avgSpeed,
             "max_speed": maxSpeed, "max_rpm": v(maxRpm), "max_coolant": v(maxCoolant), "fuel_l": v(fuelL),
             "moving_s": Int(movingS.rounded()), "idle_s": Int(idleS.rounded()), "stops": stops,
+            "breaks": breaks, "break_s": Int(breakS.rounded()),
         ]
     }
 }
@@ -63,6 +66,29 @@ struct Totals {
 private let maxStepS = 5.0
 private let movingKmh = 2.0
 private let stopMinS = 5.0
+// A gap this long between readings is a break (engine off), e.g. inside rides merged across a stop.
+let breakMinS = 60.0
+
+struct Break {
+    let index: Int // first reading after the break
+    let seconds: Double
+    let lat: Double?
+    let lon: Double?
+}
+
+/// Engine-off pauses inside a ride.
+func findBreaks(_ readings: [Reading]) -> [Break] {
+    var out: [Break] = []
+    var lastPos: Reading?
+    for (i, r) in readings.enumerated() {
+        if i > 0 {
+            let gap = r.ts.timeIntervalSince(readings[i - 1].ts)
+            if gap >= breakMinS { out.append(Break(index: i, seconds: gap, lat: lastPos?.lat ?? r.lat, lon: lastPos?.lon ?? r.lon)) }
+        }
+        if r.lat != nil, r.lon != nil { lastPos = r }
+    }
+    return out
+}
 
 func haversineKm(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
     let r = Double.pi / 180
@@ -111,7 +137,12 @@ func summarize(_ readings: [Reading]) -> Totals {
     }
     t.durationS = last.ts.timeIntervalSince(first.ts)
     t.distanceKm = obdKm > 0 ? obdKm : gpsKm
-    t.avgSpeed = t.durationS > 0 ? t.distanceKm / (t.durationS / 3600) : 0
+    let breaks = findBreaks(readings)
+    t.breaks = breaks.count
+    t.breakS = breaks.reduce(0) { $0 + $1.seconds }
+    // Average over time on the road, not the breaks.
+    let activeS = t.durationS - t.breakS
+    t.avgSpeed = activeS > 0 ? t.distanceKm / (activeS / 3600) : 0
     t.maxRpm = maxRpm > 0 ? maxRpm : nil
     t.maxCoolant = maxCoolant > 0 ? maxCoolant : nil
     t.fuelL = fuel > 0 ? fuel : nil

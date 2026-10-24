@@ -1,10 +1,13 @@
 "use client";
 import "leaflet/dist/leaflet.css";
 import { useMemo } from "react";
-import { CircleMarker, MapContainer, Polyline, TileLayer, useMapEvents } from "react-leaflet";
-import type { LatLngTuple } from "leaflet";
+import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
+import { divIcon, type LatLngTuple } from "leaflet";
 
 export type TrackPoint = { i: number; lat: number; lon: number; speed: number | null };
+export type BreakPin = { lat: number; lon: number; seconds: number };
+
+const breakIcon = divIcon({ html: "☕", className: "break-pin", iconSize: [24, 24], iconAnchor: [12, 12] });
 
 // Slow → fast, green → red.
 export const SPEED_BANDS = [
@@ -39,10 +42,12 @@ function PickHandler({ track, onPick }: { track: TrackPoint[]; onPick: (i: numbe
 export default function RouteMap({
   track,
   marker,
+  breaks = [],
   onPick,
 }: {
   track: TrackPoint[];
   marker: LatLngTuple | null;
+  breaks?: BreakPin[];
   onPick: (i: number) => void;
 }) {
   // Split the route into runs of the same speed band, sharing the boundary point so there are no gaps.
@@ -78,6 +83,11 @@ export default function RouteMap({
       ))}
       <CircleMarker center={[first.lat, first.lon]} radius={6} pathOptions={{ color: "#ffffff", fillColor: "#22c55e", fillOpacity: 1, weight: 2 }} />
       <CircleMarker center={[last.lat, last.lon]} radius={6} pathOptions={{ color: "#ffffff", fillColor: "#ef4444", fillOpacity: 1, weight: 2 }} />
+      {breaks.map((b, k) => (
+        <Marker key={k} position={[b.lat, b.lon]} icon={breakIcon}>
+          <Tooltip>Break · {Math.round(b.seconds / 60)} min</Tooltip>
+        </Marker>
+      ))}
       {marker && (
         <CircleMarker center={marker} radius={9} pathOptions={{ color: "#ffffff", fillColor: "#3b82f6", fillOpacity: 1, weight: 3 }} />
       )}

@@ -20,6 +20,8 @@ export type Ride = {
   moving_s: number | null;
   idle_s: number | null;
   stops: number | null;
+  breaks: number | null;
+  break_s: number | null;
   note: string | null;
   obd_connected: boolean;
 };
@@ -47,7 +49,7 @@ export type Reading = {
 
 export type FaultCode = { id: number; ride_id: string; code: string; detected_at: string };
 
-export type Profile = { user_id: string; currency: string; fuel_price: number | null };
+export type Profile = { user_id: string; currency: string; fuel_price: number | null; merge_gap_min: number };
 export type Vehicle = { id: string; name: string; tank_l: number | null };
 export type FuelLog = {
   id: string;

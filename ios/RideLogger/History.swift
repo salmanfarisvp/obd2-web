@@ -16,6 +16,8 @@ struct RideRecord: Identifiable {
     var movingS: Double?
     var idleS: Double?
     var stops: Int?
+    var breaks: Int?
+    var breakS: Double?
     var note: String?
     /// Still on the phone, not fully uploaded yet.
     var pending = false
@@ -38,16 +40,20 @@ struct RideRecord: Identifiable {
         movingS = num(row["moving_s"])
         idleS = num(row["idle_s"])
         stops = num(row["stops"]).map { Int($0) }
+        breaks = num(row["breaks"]).map { Int($0) }
+        breakS = num(row["break_s"])
         note = row["note"] as? String
     }
 
     /// Fill in totals from the readings for rides that were never stopped, like the website does.
     mutating func fillMissing(from readings: [Reading]) {
-        guard endedAt == nil || movingS == nil, !readings.isEmpty else { return }
+        guard endedAt == nil || movingS == nil || breaks == nil, !readings.isEmpty else { return }
         let t = summarize(readings)
         movingS = t.movingS
         idleS = t.idleS
         stops = t.stops
+        breaks = t.breaks
+        breakS = t.breakS
         if endedAt == nil {
             distanceKm = t.distanceKm
             durationS = t.durationS
@@ -135,5 +141,47 @@ enum History {
 
     static func delete(rideId: String) async throws {
         try await client.delete("rides", id: rideId)
+    }
+
+    /// Merge rides into the earliest one, like lib/merge.ts on the website: move the others' readings
+    /// and fault codes over, recompute totals (the gaps become breaks), join notes, delete the empty rides.
+    static func merge(_ rides: [RideRecord]) async throws -> RideRecord {
+        let sorted = rides.sorted { $0.startedAt < $1.startedAt }
+        var target = sorted[0]
+        // Needs migration 004 (break columns); check before moving anything so a merge never half-happens.
+        do {
+            _ = try await client.select("rides?select=breaks&limit=1")
+        } catch {
+            throw SupabaseError.http(400, "Run supabase/migrations/004_breaks_and_merge.sql in Supabase first.")
+        }
+        for other in sorted.dropFirst() {
+            try await client.update("readings", column: "ride_id", equals: other.id, fields: ["ride_id": target.id])
+            try await client.update("fault_codes", column: "ride_id", equals: other.id, fields: ["ride_id": target.id])
+        }
+        let rows = try await readings(rideId: target.id)
+        let totals = summarize(rows)
+        let note = sorted.compactMap(\.note).filter { !$0.isEmpty }.joined(separator: " · ")
+        var fields = totals.row
+        fields["ended_at"] = rows.last.map { isoFormatter.string(from: $0.ts) } ?? NSNull()
+        fields["note"] = note.isEmpty ? NSNull() : note
+        try await client.update("rides", id: target.id, fields: fields)
+        // Their readings now belong to the target, so this removes only the empty ride rows.
+        for other in sorted.dropFirst() { try await client.delete("rides", id: other.id) }
+
+        target.endedAt = rows.last?.ts ?? target.endedAt
+        target.distanceKm = totals.distanceKm
+        target.durationS = totals.durationS
+        target.avgSpeed = totals.avgSpeed
+        target.maxSpeed = totals.maxSpeed
+        target.maxRpm = totals.maxRpm
+        target.maxCoolant = totals.maxCoolant
+        target.fuelL = totals.fuelL
+        target.movingS = totals.movingS
+        target.idleS = totals.idleS
+        target.stops = totals.stops
+        target.breaks = totals.breaks
+        target.breakS = totals.breakS
+        target.note = note.isEmpty ? nil : note
+        return target
     }
 }

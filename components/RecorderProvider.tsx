@@ -65,6 +65,9 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
   const elmRef = useRef<Elm327 | null>(null);
   const reconnecting = useRef<Elm327 | null>(null);
   const rideRef = useRef<ActiveRide | null>(null);
+  // The ride that just ended, kept so an engine restart soon after continues it (see startRide).
+  const lastEnded = useRef<{ ride: ActiveRide; endedAt: number } | null>(null);
+  const mergeGapMin = useRef(10);
   const loopRunning = useRef(false);
   const waitForEngineOff = useRef(false);
   const ecuSilentSince = useRef<number | null>(null);
@@ -82,6 +85,9 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
       const saved = localStorage.getItem("vehicle-name");
       if (saved) setVehicle(saved);
     } catch {}
+    supabase.from("profiles").select("merge_gap_min").maybeSingle().then(({ data }) => {
+      if (data && typeof data.merge_gap_min === "number") mergeGapMin.current = data.merge_gap_min;
+    });
     readingsQueue.current = load<Reading[]>(PENDING_READINGS_KEY, []);
     ridesQueue.current = load<Record<string, RideRow>>(PENDING_RIDES_KEY, {});
     updateUnsent();
@@ -227,6 +233,21 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
   }
 
   function startRide(manual: boolean) {
+    // Engine started again soon after the last ride on this vehicle: continue it, the gap becomes a break.
+    const last = lastEnded.current;
+    lastEnded.current = null;
+    if (
+      !manual && last && mergeGapMin.current > 0 &&
+      last.ride.base.vehicle_name === vehicleRef.current &&
+      Date.now() - last.endedAt < mergeGapMin.current * 60_000
+    ) {
+      rideRef.current = { ...last.ride, lastRunningAt: Date.now() };
+      queueRide({ id: last.ride.base.id, ended_at: null });
+      setRideStartedAt(last.ride.base.started_at!);
+      setStats(summarize(last.ride.rows));
+      setPhase("recording");
+      return;
+    }
     const base: RideRow = {
       id: crypto.randomUUID(),
       vehicle_name: vehicleRef.current,
@@ -262,6 +283,7 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     const totals = summarize(ride.rows);
     const ended_at = ride.rows[ride.rows.length - 1].ts;
     queueRide({ ...ride.base, ...totals, ended_at });
+    if (!ride.manual) lastEnded.current = { ride, endedAt: Date.now() };
     setLastSaved({ id: ride.base.id, started_at: ride.base.started_at!, ended_at, distance_km: totals.distance_km });
     flush();
   }
@@ -282,6 +304,8 @@ export function RecorderProvider({ children }: { children: React.ReactNode }) {
     // Don't let an engine that is still running start a new ride straight away.
     if (!ride.manual) waitForEngineOff.current = true;
     endRide();
+    // Ended on purpose: the next engine start is a new ride, not a continuation.
+    lastEnded.current = null;
   }
 
   function logReading(ride: ActiveRide, sample: Sample) {

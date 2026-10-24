@@ -71,6 +71,33 @@ final class LocalStore: ObservableObject {
         refreshPending()
     }
 
+    /// Rides restarting within this many minutes are merged (Profile setting, cached here); 0 = off.
+    var mergeGapMin: Int { UserDefaults.standard.object(forKey: "merge-gap-min") as? Int ?? 10 }
+
+    /// A ride on this vehicle that ended within the merge gap and may be continued. Reopens it for
+    /// recording and returns its readings so far.
+    func reopenRecent(vehicle: String) -> (id: String, readings: [Reading], breakS: TimeInterval)? {
+        guard mergeGapMin > 0 else { return nil }
+        let candidates = rideIds().compactMap { id -> (String, Date)? in
+            guard let meta = readMeta(id), meta["local_state"] as? String == "ready", meta["local_no_merge"] as? Bool != true,
+                  meta["vehicle_name"] as? String == vehicle, let ended = parseDate(meta["ended_at"]),
+                  Date().timeIntervalSince(ended) < Double(mergeGapMin) * 60 else { return nil }
+            return (id, ended)
+        }
+        guard let (id, ended) = candidates.max(by: { $0.1 < $1.1 }), var meta = readMeta(id) else { return nil }
+        meta["local_state"] = "recording"
+        writeMeta(id, meta)
+        refreshPending()
+        return (id, readings(id), Date().timeIntervalSince(ended))
+    }
+
+    /// Ended on purpose: upload now and never continue it.
+    func markNoMerge(id: String) {
+        guard var meta = readMeta(id) else { return }
+        meta["local_no_merge"] = true
+        writeMeta(id, meta)
+    }
+
     func discard(id: String) {
         closeHandle(id)
         try? FileManager.default.removeItem(at: metaURL(id))
@@ -129,6 +156,10 @@ final class LocalStore: ObservableObject {
         }
         for id in rideIds() {
             guard var meta = readMeta(id), meta["local_state"] as? String == "ready" else { continue }
+            // Hold a just-finished ride for the merge gap, in case the engine starts again.
+            if meta["local_no_merge"] as? Bool != true, mergeGapMin > 0, let ended = parseDate(meta["ended_at"]),
+               Date().timeIntervalSince(ended) < Double(mergeGapMin) * 60 { continue }
+            meta["local_no_merge"] = nil
             let codes = meta["local_fault_codes"] as? [String] ?? []
             meta["local_state"] = nil
             meta["local_fault_codes"] = nil

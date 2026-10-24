@@ -207,6 +207,7 @@ struct ProfileView: View {
 
     @State private var currency = defaultCurrency
     @State private var price = ""
+    @State private var mergeGap = 10
     @State private var drafts: [VehicleDraft] = []
     @State private var loaded = false
     @State private var status: String?
@@ -233,6 +234,15 @@ struct ProfileView: View {
                     }
                 } footer: {
                     Text("Used for ride costs until you log a fill-up; each fill-up then sets the price.")
+                }
+                Section {
+                    Picker("Merge rides with a short stop", selection: $mergeGap) {
+                        ForEach([0, 5, 10, 15, 30], id: \.self) { Text($0 == 0 ? "Off" : "\($0) min").tag($0) }
+                    }
+                } header: {
+                    Text("Rides")
+                } footer: {
+                    Text("If the engine starts again within this time, the ride continues instead of starting a new one. The stop shows as a ☕ break.")
                 }
                 Section("Vehicles") {
                     ForEach($drafts) { $d in
@@ -269,6 +279,7 @@ struct ProfileView: View {
                 await fuel.load()
                 currency = fuel.profile?.currency ?? defaultCurrency
                 price = fuel.profile?.fuelPrice.map { String(format: "%.2f", $0) } ?? ""
+                mergeGap = fuel.profile?.mergeGapMin ?? 10
                 if fuel.vehicles.isEmpty {
                     // Suggest the vehicles already used for rides.
                     drafts = fuel.vehicleNames(including: recorder.vehicle).map {
@@ -291,7 +302,7 @@ struct ProfileView: View {
         status = "Saving…"
         Task {
             do {
-                try await fuel.saveProfile(currency: currency.isEmpty ? defaultCurrency : currency, fuelPrice: Double(p))
+                try await fuel.saveProfile(currency: currency.isEmpty ? defaultCurrency : currency, fuelPrice: Double(p), mergeGapMin: mergeGap)
                 for d in drafts {
                     let name = d.name.trimmingCharacters(in: .whitespaces)
                     guard !name.isEmpty else { continue }

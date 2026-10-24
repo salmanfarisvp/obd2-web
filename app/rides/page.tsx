@@ -5,6 +5,7 @@ import RequireAuth from "@/components/RequireAuth";
 import { supabase, Ride } from "@/lib/supabase";
 import { formatDuration } from "@/lib/geo";
 import { completeRide } from "@/lib/rideSummary";
+import { mergeRides } from "@/lib/merge";
 import { DEFAULT_CURRENCY, FuelData, Mileage, loadFuelData, money, realMileage, rideCost, rideFuel } from "@/lib/fuel";
 
 function VehicleCard({ name, rides, mileage, data }: { name: string; rides: Ride[]; mileage: Mileage | null; data: FuelData }) {
@@ -54,6 +55,33 @@ function RideList() {
   const [fuel, setFuel] = useState<FuelData>({ profile: null, vehicles: [], logs: [] });
   const [vehicle, setVehicle] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [merging, setMerging] = useState(false);
+
+  function toggle(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function merge() {
+    const picked = rides!.filter((r) => selected.has(r.id));
+    if (!window.confirm(`Merge ${picked.length} rides into one? The time between them becomes breaks.`)) return;
+    setMerging(true);
+    try {
+      const merged = await mergeRides(picked);
+      setRides((all) => all!.filter((r) => !selected.has(r.id) || r.id === merged.id).map((r) => (r.id === merged.id ? merged : r)));
+      setSelected(new Set());
+      setSelecting(false);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setMerging(false);
+  }
 
   useEffect(() => {
     loadFuelData().then(setFuel, () => {});
@@ -62,7 +90,7 @@ function RideList() {
       if (error) return setError(error.message);
       setRides(data as Ride[]);
       // Rides that were never stopped have no totals yet; work them out from their readings.
-      if ((data as Ride[]).some((r) => r.ended_at === null || r.moving_s === null)) {
+      if ((data as Ride[]).some((r) => r.ended_at === null || r.moving_s === null || r.breaks === null)) {
         setRides(await Promise.all((data as Ride[]).map((r) => completeRide(r).catch(() => r))));
       }
     })();
@@ -83,6 +111,8 @@ function RideList() {
   const totalS = shown.reduce((sum, r) => sum + (r.duration_s ?? 0), 0);
   const movingS = shown.reduce((sum, r) => sum + (r.moving_s ?? 0), 0);
   const idleS = shown.reduce((sum, r) => sum + (r.idle_s ?? 0), 0);
+  const picked = rides.filter((r) => selected.has(r.id));
+  const canMerge = picked.length >= 2 && new Set(picked.map((r) => r.vehicle_name)).size === 1;
 
   return (
     <>
@@ -113,13 +143,30 @@ function RideList() {
           ))}
       </div>
 
-      <h2>Rides</h2>
+      <div className="row" style={{ justifyContent: "space-between", marginTop: 24 }}>
+        <h2 style={{ margin: 0 }}>Rides</h2>
+        {shown.length > 1 && (
+          <div className="row">
+            {selecting && (
+              <button className="primary" onClick={merge} disabled={merging || !canMerge}>
+                {merging ? "Merging…" : `Merge ${selected.size || ""}`}
+              </button>
+            )}
+            <button onClick={() => { setSelecting(!selecting); setSelected(new Set()); }}>{selecting ? "Cancel" : "Select"}</button>
+          </div>
+        )}
+      </div>
+      {selecting && (
+        <p className="muted" style={{ fontSize: 13 }}>
+          Pick two or more rides on the same vehicle to merge them into one; the time between them becomes breaks.
+        </p>
+      )}
       {rides.length === 0 && <p className="muted">No rides yet. <Link href="/ride" style={{ color: "var(--accent)" }}>Start one →</Link></p>}
       <div className="list">
         {shown.map((r) => {
           const cost = rideCost(r, mileages[r.vehicle_name], fuel);
-          return (
-            <Link key={r.id} href={`/rides/${r.id}`} className="card ride-item">
+          const body = (
+            <>
               <div>
                 <div style={{ fontWeight: 600 }}>
                   {new Date(r.started_at).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
@@ -127,6 +174,7 @@ function RideList() {
                 </div>
                 <div className="muted" style={{ fontSize: 13 }}>
                   {r.vehicle_name} · {formatDuration(r.duration_s)}
+                  {r.breaks ? ` · ☕ ${r.breaks} break${r.breaks > 1 ? "s" : ""}` : ""}
                   {r.ended_at === null && " · in progress"}
                 </div>
                 {r.note && <div style={{ fontSize: 13, marginTop: 2 }}>📝 {r.note}</div>}
@@ -137,7 +185,15 @@ function RideList() {
                   {cost !== null ? money(currency, cost) : `max ${Math.round(r.max_speed ?? 0)} km/h`}
                 </div>
               </div>
-            </Link>
+            </>
+          );
+          return selecting ? (
+            <label key={r.id} className="card ride-item" style={{ cursor: "pointer", borderColor: selected.has(r.id) ? "var(--accent)" : undefined }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
+              {body}
+            </label>
+          ) : (
+            <Link key={r.id} href={`/rides/${r.id}`} className="card ride-item">{body}</Link>
           );
         })}
       </div>

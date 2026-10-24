@@ -9,6 +9,24 @@ const MAX_STEP_S = 5;
 const MOVING_KMH = 2;
 // A stationary spell must last this long after moving to count as a stop.
 const STOP_MIN_S = 5;
+// A gap this long between readings is a break (engine off), e.g. inside rides merged across a stop.
+export const BREAK_MIN_S = 60;
+
+export type Break = { index: number; seconds: number; lat: number | null; lon: number | null };
+
+/** Engine-off pauses inside a ride; `index` is the first reading after the break. */
+export function findBreaks(readings: Reading[]): Break[] {
+  const out: Break[] = [];
+  let lastPos: Reading | null = null;
+  readings.forEach((r, i) => {
+    if (i > 0) {
+      const gap = (Date.parse(r.ts) - Date.parse(readings[i - 1].ts)) / 1000;
+      if (gap >= BREAK_MIN_S) out.push({ index: i, seconds: gap, lat: lastPos?.lat ?? r.lat, lon: lastPos?.lon ?? r.lon });
+    }
+    if (r.lat !== null && r.lon !== null) lastPos = r;
+  });
+  return out;
+}
 
 export async function fetchReadings(rideId: string) {
   const rows: Reading[] = [];
@@ -34,12 +52,14 @@ export type Totals = Pick<Ride, "max_rpm" | "max_coolant" | "fuel_l"> & {
   moving_s: number;
   idle_s: number;
   stops: number;
+  breaks: number;
+  break_s: number;
 };
 
 /** Ride totals from its readings; used live while recording and to finish rides afterwards. */
 export function summarize(readings: Reading[]): Totals {
   if (!readings.length) {
-    return { distance_km: 0, duration_s: 0, avg_speed: 0, max_speed: 0, max_rpm: null, max_coolant: null, fuel_l: null, moving_s: 0, idle_s: 0, stops: 0 };
+    return { distance_km: 0, duration_s: 0, avg_speed: 0, max_speed: 0, max_rpm: null, max_coolant: null, fuel_l: null, moving_s: 0, idle_s: 0, stops: 0, breaks: 0, break_s: 0 };
   }
   let obdKm = 0, gpsKm = 0, fuelL = 0, maxSpeed = 0, maxRpm = 0, maxCoolant = 0;
   let movingS = 0, idleS = 0, stops = 0, stillS = 0, hasMoved = false;
@@ -79,10 +99,14 @@ export function summarize(readings: Reading[]): Totals {
 
   const durationS = (Date.parse(readings[readings.length - 1].ts) - Date.parse(readings[0].ts)) / 1000;
   const distance = obdKm > 0 ? obdKm : gpsKm;
+  const breaks = findBreaks(readings);
+  const breakS = breaks.reduce((s, b) => s + b.seconds, 0);
+  // Average over time on the road, not the breaks.
+  const activeS = durationS - breakS;
   return {
     distance_km: distance,
     duration_s: Math.round(durationS),
-    avg_speed: durationS ? distance / (durationS / 3600) : 0,
+    avg_speed: activeS > 0 ? distance / (activeS / 3600) : 0,
     max_speed: maxSpeed,
     max_rpm: maxRpm || null,
     max_coolant: maxCoolant || null,
@@ -90,20 +114,22 @@ export function summarize(readings: Reading[]): Totals {
     moving_s: Math.round(movingS),
     idle_s: Math.round(idleS),
     stops,
+    breaks: breaks.length,
+    break_s: Math.round(breakS),
   };
 }
 
 /**
  * For a ride that was never stopped, compute its totals from the saved readings.
  * If it has gone quiet, save them and close the ride so this only happens once.
- * Finished rides from before riding/idle time existed just get those filled in.
+ * Finished rides from before riding/idle time or breaks existed just get those filled in.
  */
 export async function completeRide(ride: Ride, readings?: Reading[]): Promise<Ride> {
-  if (ride.ended_at !== null && ride.moving_s !== null) return ride;
+  if (ride.ended_at !== null && ride.moving_s !== null && ride.breaks !== null) return ride;
   const rows = readings ?? (await fetchReadings(ride.id));
   const totals = summarize(rows);
   if (ride.ended_at !== null) {
-    const times = { moving_s: totals.moving_s, idle_s: totals.idle_s, stops: totals.stops };
+    const times = { moving_s: totals.moving_s, idle_s: totals.idle_s, stops: totals.stops, breaks: totals.breaks, break_s: totals.break_s };
     await supabase.from("rides").update(times).eq("id", ride.id);
     return { ...ride, ...times };
   }

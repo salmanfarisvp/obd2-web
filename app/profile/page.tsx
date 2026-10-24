@@ -14,6 +14,7 @@ function ProfileForm() {
   const { vehicle: currentVehicle, setVehicle: setCurrentVehicle } = useRecorder();
   const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
   const [price, setPrice] = useState("");
+  const [mergeGap, setMergeGap] = useState(10);
   const [vehicles, setVehicles] = useState<VehicleDraft[] | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -23,6 +24,7 @@ function ProfileForm() {
       if (data.profile) {
         setCurrency(data.profile.currency);
         setPrice(data.profile.fuel_price?.toString() ?? "");
+        setMergeGap(data.profile.merge_gap_min ?? 10);
       }
       if (data.vehicles.length) {
         setVehicles(data.vehicles.map((v) => ({ id: v.id, name: v.name, originalName: v.name, tank: v.tank_l?.toString() ?? "" })));
@@ -45,7 +47,7 @@ function ProfileForm() {
     setStatus("Saving…");
     const parsedPrice = price.trim() ? Number(price) : null;
     if (parsedPrice !== null && !(parsedPrice > 0)) return setStatus("Enter a valid petrol price.");
-    const { error } = await supabase.from("profiles").upsert({ user_id: session!.user.id, currency, fuel_price: parsedPrice });
+    const { error } = await supabase.from("profiles").upsert({ user_id: session!.user.id, currency, fuel_price: parsedPrice, merge_gap_min: mergeGap });
     if (error) return setStatus(`Couldn't save: ${error.message}`);
 
     const saved: VehicleDraft[] = [];
@@ -95,6 +97,21 @@ function ProfileForm() {
         <label>Petrol price per litre ({currency.trim()})</label>
         <input inputMode="decimal" placeholder="e.g. 102.50" value={price} onChange={(e) => { setPrice(e.target.value); setStatus(null); }} />
         <p className="muted" style={{ fontSize: 13 }}>Used for ride costs until you log a fill-up; each fill-up then sets the price.</p>
+      </div>
+
+      <h2>Rides</h2>
+      <div className="card">
+        <label style={{ marginTop: 0 }}>Merge rides with a short stop</label>
+        <div className="row">
+          {[0, 5, 10, 15, 30].map((m) => (
+            <button key={m} className={mergeGap === m ? "primary" : ""} onClick={() => { setMergeGap(m); setStatus(null); }}>
+              {m === 0 ? "Off" : `${m} min`}
+            </button>
+          ))}
+        </div>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+          If the engine starts again within this time, the ride continues instead of starting a new one. The stop shows as a ☕ break.
+        </p>
       </div>
 
       <h2>Vehicles</h2>

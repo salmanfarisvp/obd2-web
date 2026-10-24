@@ -9,9 +9,10 @@ import RideChart, { ChartRow } from "@/components/RideChart";
 import RideReplay from "@/components/RideReplay";
 import { SPEED_BANDS, TrackPoint } from "@/components/RouteMap";
 import RideNote from "@/components/RideNote";
+import ShareRide from "@/components/ShareRide";
 import { supabase, Ride, Reading, FaultCode } from "@/lib/supabase";
 import { formatDuration } from "@/lib/geo";
-import { completeRide, fetchReadings } from "@/lib/rideSummary";
+import { completeRide, fetchReadings, findBreaks } from "@/lib/rideSummary";
 import { calibration, DEFAULT_CURRENCY, FuelData, Mileage, loadFuelData, money, priceAt, realMileage, rideCost, rideFuel } from "@/lib/fuel";
 
 const RouteMap = dynamic(() => import("@/components/RouteMap"), { ssr: false });
@@ -75,6 +76,11 @@ function RideDetail({ id }: { id: string }) {
     return readings.map((r) => (r.lat !== null && r.lon !== null ? (last = [r.lat, r.lon]) : last));
   }, [readings]);
 
+  const breakPins = useMemo(
+    () => findBreaks(readings).flatMap((b) => (b.lat !== null && b.lon !== null ? [{ lat: b.lat, lon: b.lon, seconds: b.seconds }] : [])),
+    [readings],
+  );
+
   const t0 = readings.length ? Date.parse(readings[0].ts) : 0;
   const cursorMin = readings.length ? (Date.parse(readings[cursor].ts) - t0) / 60000 : undefined;
 
@@ -132,6 +138,11 @@ function RideDetail({ id }: { id: string }) {
       <div className="card" style={{ marginBottom: 12 }}>
         <RideNote key={ride.id} rideId={ride.id} initial={ride.note} />
       </div>
+      {readings.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <ShareRide ride={ride} readings={readings} fuelL={litres} cost={cost !== null ? money(currency, cost) : null} />
+        </div>
+      )}
 
       <div className="grid">
         <div className="card stat"><div className="label">Distance</div><div className="value">{(ride.distance_km ?? 0).toFixed(2)}<span className="unit">km</span></div></div>
@@ -139,6 +150,7 @@ function RideDetail({ id }: { id: string }) {
         {ride.moving_s !== null && <div className="card stat"><div className="label">Riding time</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(ride.moving_s)}</div></div>}
         {ride.idle_s !== null && <div className="card stat"><div className="label">Idle time</div><div className="value" style={{ fontSize: 20 }}>{formatDuration(ride.idle_s)}</div></div>}
         {ride.stops !== null && <div className="card stat"><div className="label">Stops</div><div className="value">{ride.stops}</div></div>}
+        {ride.breaks ? <div className="card stat"><div className="label">Breaks</div><div className="value" style={{ fontSize: 20 }}>{ride.breaks} · {formatDuration(ride.break_s)}</div></div> : null}
         <div className="card stat"><div className="label">Avg speed</div><div className="value">{Math.round(ride.avg_speed ?? 0)}<span className="unit">km/h</span></div></div>
         {ride.moving_s ? <div className="card stat"><div className="label">Riding avg</div><div className="value">{Math.round((ride.distance_km ?? 0) / (ride.moving_s / 3600))}<span className="unit">km/h</span></div></div> : null}
         <div className="card stat"><div className="label">Max speed</div><div className="value">{Math.round(ride.max_speed ?? 0)}<span className="unit">km/h</span></div></div>
@@ -153,7 +165,7 @@ function RideDetail({ id }: { id: string }) {
       {(track.length > 1 || readings.length > 1) && <h2>Replay</h2>}
       {track.length > 1 && (
         <>
-          <div className="map"><RouteMap track={track} marker={positions[cursor] ?? null} onPick={scrub} /></div>
+          <div className="map"><RouteMap track={track} marker={positions[cursor] ?? null} breaks={breakPins} onPick={scrub} /></div>
           <div className="legend">
             <span>Speed km/h:</span>
             {SPEED_BANDS.map((b) => <span key={b.label}><i style={{ background: b.color }} />{b.label}</span>)}

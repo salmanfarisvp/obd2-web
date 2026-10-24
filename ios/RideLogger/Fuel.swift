@@ -7,6 +7,8 @@ let defaultCurrency = "₹"
 struct Profile {
     var currency: String
     var fuelPrice: Double?
+    /// Rides restarting within this many minutes are merged; 0 turns it off.
+    var mergeGapMin: Int = 10
 }
 
 struct Vehicle: Identifiable {
@@ -79,7 +81,11 @@ final class FuelStore: ObservableObject {
             async let l = client.select("fuel_logs?select=*&order=filled_at")
             async let r = History.rides()
             let (pRows, vRows, lRows, rideList) = try await (p, v, l, r)
-            profile = pRows.first.map { Profile(currency: $0["currency"] as? String ?? defaultCurrency, fuelPrice: num($0["fuel_price"])) }
+            profile = pRows.first.map {
+                Profile(currency: $0["currency"] as? String ?? defaultCurrency, fuelPrice: num($0["fuel_price"]),
+                        mergeGapMin: num($0["merge_gap_min"]).map { Int($0) } ?? 10)
+            }
+            if let gap = profile?.mergeGapMin { UserDefaults.standard.set(gap, forKey: "merge-gap-min") }
             vehicles = vRows.compactMap { row in
                 (row["id"] as? String).map { Vehicle(id: $0, name: row["name"] as? String ?? "", tankL: num(row["tank_l"])) }
             }
@@ -150,10 +156,13 @@ final class FuelStore: ObservableObject {
 
     // MARK: Writes
 
-    func saveProfile(currency: String, fuelPrice: Double?) async throws {
+    func saveProfile(currency: String, fuelPrice: Double?, mergeGapMin: Int? = nil) async throws {
         guard let userId = client.session?.userId else { throw SupabaseError.notSignedIn }
-        try await client.insert("profiles", rows: [["user_id": userId, "currency": currency, "fuel_price": fuelPrice ?? NSNull()]], upsert: true)
-        profile = Profile(currency: currency, fuelPrice: fuelPrice)
+        let gap = mergeGapMin ?? profile?.mergeGapMin ?? 10
+        try await client.insert("profiles", rows: [["user_id": userId, "currency": currency, "fuel_price": fuelPrice ?? NSNull(),
+                                                    "merge_gap_min": gap]], upsert: true)
+        profile = Profile(currency: currency, fuelPrice: fuelPrice, mergeGapMin: gap)
+        UserDefaults.standard.set(gap, forKey: "merge-gap-min")
     }
 
     /// Save a vehicle (new when `id` is nil). A rename carries over to its rides and fill-ups.

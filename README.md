@@ -25,6 +25,12 @@ Logs rides from a BLE ELM327 OBD2 adapter plus phone GPS to Supabase, and shows 
 - **Mileage and cost**: per vehicle and per ride: fuel used, km/L, cost and cost per km. Real
   mileage comes from the fuel log (km ridden ÷ litres filled between fill-ups) and, once reliable,
   calibrates the engine-based fuel estimates.
+- **Share a ride**: a Strava-style picture of the ride (square or Story size): the route coloured
+  by speed over a dimmed map, with distance, riding time, speeds and engine details (RPM, coolant,
+  fuel, mileage, cost, idle). Option to hide where the ride starts and ends.
+- **Merging rides**: if the engine starts again within 10 minutes (Profile: off/5/10/15/30), the
+  ride continues and the stop becomes a ☕ break. Breaks don't count towards average speed. In
+  History, **Select** rides and **Merge** them by hand.
 - **Fault codes**: stored DTCs are read when the adapter connects and attached to the ride.
 - **Offline-safe**: readings are kept on the phone and uploaded when the connection is back.
   Rides interrupted by a reload or closed app still get their totals in History.

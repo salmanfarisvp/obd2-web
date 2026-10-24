@@ -16,6 +16,8 @@ create table rides (
   moving_s integer,
   idle_s integer,
   stops integer,
+  breaks integer,
+  break_s integer,
   note text,
   obd_connected boolean not null default false
 );
@@ -63,7 +65,8 @@ create policy "own fault codes" on fault_codes for all using (user_id = auth.uid
 create table profiles (
   user_id uuid primary key default auth.uid() references auth.users on delete cascade,
   currency text not null default '₹',
-  fuel_price real
+  fuel_price real,
+  merge_gap_min integer not null default 10
 );
 
 create table vehicles (
