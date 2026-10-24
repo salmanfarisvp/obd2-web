@@ -13,6 +13,7 @@ struct RidesView: View {
     @State private var selected: Set<String> = []
     @State private var confirmMerge = false
     @State private var merging = false
+    @State private var actionError: String?
 
     /// Two or more uploaded rides on the same vehicle.
     private var canMerge: Bool {
@@ -84,6 +85,11 @@ struct RidesView: View {
                     }
                 }
             }
+            .alert("Couldn't merge", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+                Button("OK") {}
+            } message: {
+                Text(actionError ?? "")
+            }
             .confirmationDialog("Merge \(selected.count) rides into one?", isPresented: $confirmMerge, titleVisibility: .visible) {
                 Button("Merge") { merge() }
             } message: {
@@ -118,7 +124,7 @@ struct RidesView: View {
                 selected = []
                 selecting = false
             } catch {
-                self.error = error.localizedDescription
+                actionError = error.localizedDescription
             }
             merging = false
         }
